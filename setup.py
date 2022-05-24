@@ -4,7 +4,7 @@ import pathlib
 
 setuptools.setup(
     name='ninjax',
-    version='0.2.4',
+    version='0.3.0',
     description='State manager for JAX',
     url='http://github.com/danijar/ninjax',
     long_description=pathlib.Path('README.md').read_text(),

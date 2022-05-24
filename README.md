@@ -3,9 +3,9 @@
 # 🥷  Ninjax
 
 Ninjax is a lightweight module system for [JAX][jax] that gives modules full
-control over their state (e.g. have their own `train()` functions). It also
+control over their state (e.g. to have their own `train()` functions). It also
 makes it easy to use modules from different libraries together, such as
-[Flax][flax] or [Haiku][flax].
+[Flax][flax] and [Haiku][flax].
 
 [jax]: https://github.com/google/jax
 [flax]: https://github.com/google/flax
@@ -22,8 +22,8 @@ modules with their own training logic and optimizers.
 Ninjax solves this problem by giving each `nj.Module` full read and write
 access to its state, while remaining functional via `nj.run()`. This means
 modules can have `train()` functions to implement custom training logic, and
-call each other's train functions. Ninjax is intended to be used with one (or
-more) neural network libraries, such as [Haiku][haiku] and [Flax][flax].
+call each other's train functions. Ninjax is intended to be used with one or
+more neural network libraries, such as [Haiku][haiku] and [Flax][flax].
 
 ## Installation
 
@@ -245,6 +245,13 @@ class Module(nj.Module):
   def loss(self, x, y):
     return ((self.mlp(x) - y) ** 2).mean()
 ```
+
+## Limitations
+
+Ninjax is still a young library. One current limitation is that LAX symbolic
+control flow and computing gradients of gradients has not been tested and might
+not work correctly. If you are interested in this functionality or encounter
+any other issues, let me know.
 
 ## Questions
 
