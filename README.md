@@ -97,7 +97,7 @@ state, out = nj.run(state, rng, fn, *args, **kwargs)
 class nj.Module:
   @path                                 # Unique scope string for this module.
   def get(name, ctor, *args, **kwargs)  # Get or create state entry.
-  def set(name, value)                  # Update state entry.
+  def put(name, value)                  # Update state entry.
   def get_state(filter='.*')            # Get multiple state entries.
   def set_state(entries)                # Update multiple state entries.
 
