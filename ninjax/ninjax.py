@@ -161,13 +161,16 @@ class Module(object, metaclass=ModuleMeta):
     self.update({self.path + '/' + name: value})
 
 
-def grad(keys, fn, *args, **kwargs):
+def grad(fn, keys):
   """Compute the value and gradient of a function with respect to the state
   entries of the provided keys."""
   state_ = state()
-  x = {k: state_[k] for k in keys}
   def inner(x, *args, **kwargs):
-    state_.update(x)  # TODO: Do a tree merge.
+    state_.update(x)
     return fn(*args, **kwargs)
-  # TODO: Restore to previous tracer instances afterwards.
-  return jax.value_and_grad(inner)(x, *args, **kwargs)
+  grad_fn = jax.value_and_grad(inner)
+  @functools.wraps(grad_fn)
+  def wrapper(*args, **kwargs):
+    x = {k: state_[k] for k in keys}
+    return grad_fn(x, *args, **kwargs)
+  return wrapper

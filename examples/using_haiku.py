@@ -20,7 +20,7 @@ class MyModule(nj.Module):
   def train(self, x, y):
     self(x)  # Initialize weights.
     params = self.state('mlp')
-    loss, grads = nj.grad(params, self.loss, x, y)
+    loss, grads = nj.grad(self.loss, params)(x, y)
     params = jax.tree_map(lambda p, g: p - 0.01 * p, params, grads)
     self.update(params)
     return {'loss': loss}

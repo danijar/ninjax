@@ -13,7 +13,7 @@ class Optimizer(nj.Module):
 
   def __call__(self, params, loss, *a, **k):
     metrics = {}
-    loss, grads = nj.grad(params.keys(), loss, *a, **k)
+    loss, grads = nj.grad(loss, params.keys())(*a, **k)
     optstate = self.get('state', self.opt.init, params)
     updates, optstate = self.opt.update(grads, optstate)
     self.put('state', optstate)
