@@ -8,23 +8,18 @@ import jax
 
 STATE = [None]
 SCOPE = ['']
-RNG_KEY = [None]
+RNG = [None]
 
 
-###############################################################################
-# State
-###############################################################################
-
-
-def run(fn, state, rng_key, *a, **k):
+def run(fn, state, rng, *a, **k):
   """Run a function or method that uses the global state or the global RNG
   key. The new global state and function output are returned."""
   global STATE
   STATE[0] = state
-  RNG_KEY[0] = rng_key
+  RNG[0] = rng
   out = fn(*a, **k)
   STATE[0] = None
-  RNG_KEY[0] = None
+  RNG[0] = None
   return state, out
 
 
@@ -36,63 +31,13 @@ def state():
   return STATE[0]
 
 
-def get(name, ctor, *a, **k):
-  """Get or create a new entry in the global state. Respects the current name
-  scope."""
-  global SCOPE
-  if SCOPE[0] is None:
-    raise RuntimeError('Run stateful functions with run().')
-  name = SCOPE[0] + '/' + name
-  s = state()
-  if name not in s:
-    s[name] = ctor(*a, **k)
-  return s[name]
-
-
-def find(pattern, allow_empty=False):
-  """Retrieve subtrees from the global state by matching the top-level keys to
-  a regex."""
-  pattern = re.compile(pattern)
-  results = {}
-  for key, value in state().items():
-    if pattern.match(key):
-      results[key] = value
-  if not allow_empty and not results:
-    keys = ', '.join(state().keys())
-    raise KeyError(f'Pattern {pattern} matched none of the state keys: {keys}')
-  return results
-
-
-def grad(names, fn, *a, **k):
-  """Compute the value and gradient of a function with respect to the state
-  entries of the provided keys."""
-  s = state()
-  x = {k: s[k] for k in names}
-  def inner(x, *a, **k):
-    state().update(x)
-    return fn(*a, **k)
-  return jax.value_and_grad(inner)(x, *a, **k)
-
-
-###############################################################################
-# Randomness
-###############################################################################
-
-
-def next_rng_key():
-  """Split the global RNG key to obtain a local key."""
-  # TODO: Should we split keys hierarchically based on the module scopes to
-  # reduce dependencies between random functions?
-  global RNG_KEY
-  if RNG_KEY[0] is None:
+def rng():
+  """Split the global RNG key and return a local key."""
+  global RNG
+  if RNG[0] is None:
     raise RuntimeError('Run functions that use the global RNG key with run().')
-  RNG_KEY[0], rng_key = jax.random.split(RNG_KEY[0])
-  return rng_key
-
-
-###############################################################################
-# Scopes
-###############################################################################
+  RNG[0], rng = jax.random.split(RNG[0])
+  return rng
 
 
 @contextlib.contextmanager
@@ -112,6 +57,9 @@ def scope(scope, absolute=False):
 
 
 class ModuleMeta(type):
+
+  """Meta class that creates a unique path for each module instance and wraps
+  the methods and properties of the module to enter the name scope."""
 
   COUNTERS = {}
 
@@ -149,7 +97,7 @@ class ModuleMeta(type):
       cls.COUNTERS[name] = 1
     obj.name = name
     with scope(name) as path:
-      obj.path = path
+      obj._path = path
     init = _scope_method(cls.__init__)
     init(obj, *args, **kwargs)
     return obj
@@ -158,12 +106,68 @@ class ModuleMeta(type):
 def _scope_method(method):
   @functools.wraps(method)
   def wrapper(self, *args, **kwargs):
-    with scope(self.path, absolute=True):
+    with scope(self._path, absolute=True):
       return method(self, *args, **kwargs)
   return wrapper
 
 
 class Module(object, metaclass=ModuleMeta):
 
+  """Base class for users to inherit their modules from. Provides automatic
+  name scoping via the meta class and helper functions for accessing state."""
+
   def __repr__(self):
     return f'{self.__class__.__name__}({self.path})'
+
+  @property
+  def path(self):
+    """The unique name scope of this module instance as a string."""
+    return self._path
+
+  def state(self, filter=r'.*', allow_empty=False):
+    """Read the state entries of this module, optionally filtered by regex."""
+    state_ = state()
+    filter = re.compile(filter)
+    prefix = self.path + '/'
+    results = {}
+    for key, value in state_.items():
+      if not key.startswith(prefix):
+        continue
+      if filter.match(key[len(prefix):]):
+        results[key] = value
+    if not allow_empty and not results:
+      raise KeyError(f'Filter {filter} matched no state keys.')
+    return results
+
+  def update(self, mapping):
+    """Update or create multiple state entries that belong to this module."""
+    prefix = self.path + '/'
+    for key in mapping:
+      if not key.startswith(prefix):
+        raise KeyError(f'Key {key} does not belong to module {self.path}.')
+    state().update(mapping)
+
+  def get(self, name, *args, **kwargs):
+    """Retrieve or create a state entry that belongs to this module."""
+    state_ = state()
+    name = self.path + '/' + name
+    if name not in state_:
+      ctor, *args = args
+      state_[name] = ctor(*args, **kwargs)
+    return state_[name]
+
+  def put(self, name, value):
+    """Update or create a single state entry that belongs to this module."""
+    self.update({self.path + '/' + name: value})
+
+
+def grad(keys, fn, *args, **kwargs):
+  """Compute the value and gradient of a function with respect to the state
+  entries of the provided keys."""
+  state_ = state()
+  x = {k: state_[k] for k in keys}
+  def inner(x, *args, **kwargs):
+    state_.update(x)  # TODO: Do a tree merge.
+    return fn(*args, **kwargs)
+  # TODO: Restore to previous tracer instances afterwards.
+  return jax.value_and_grad(inner)(x, *args, **kwargs)

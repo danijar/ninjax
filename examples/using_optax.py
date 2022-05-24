@@ -11,13 +11,12 @@ class Optimizer(nj.Module):
   def __init__(self, opt):
     self.opt = opt
 
-  def __call__(self, pattern, loss, *a, **k):
+  def __call__(self, params, loss, *a, **k):
     metrics = {}
-    params = nj.find(pattern + r'(/?.*)')
     loss, grads = nj.grad(params.keys(), loss, *a, **k)
-    optstate = nj.get('state', self.opt.init, params)
+    optstate = self.get('state', self.opt.init, params)
     updates, optstate = self.opt.update(grads, optstate)
-    nj.state()['state'] = optstate
+    self.put('state', optstate)
     nj.state().update(optax.apply_updates(params, updates))
     metrics['loss'] = loss.mean()
     metrics['grad_norm'] = optax.global_norm(grads)
@@ -33,13 +32,13 @@ class MyModule(nj.Module):
   def __call__(self, x):
     init = jax.nn.initializers.glorot_uniform()
     shape = (x.shape[-1], self.size)
-    w = nj.get('w', init, nj.next_rng_key(), shape, jnp.float32)
-    b = nj.get('b', jnp.zeros, (self.size), jnp.float32)
+    w = self.get('w', init, nj.rng(), shape, jnp.float32)
+    b = self.get('b', jnp.zeros, (self.size), jnp.float32)
     return x @ w + b
 
   def train(self, x, y):
     self(x)  # Initialize weights.
-    metrics = self.opt(self.path + '/(w|b)', self.loss, x, y)
+    metrics = self.opt(self.state('w|b'), self.loss, x, y)
     return metrics
 
   def loss(self, x, y):

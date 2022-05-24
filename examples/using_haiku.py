@@ -14,15 +14,15 @@ class MyModule(nj.Module):
     self.mlp = hk.transform(net)
 
   def __call__(self, x):
-    params = nj.get('mlp', self.mlp.init, nj.next_rng_key(), x)
-    return self.mlp.apply(params, None, x)
+    weights = self.get('mlp', self.mlp.init, nj.rng(), x)
+    return self.mlp.apply(weights, None, x)
 
   def train(self, x, y):
     self(x)  # Initialize weights.
-    params = nj.find(self.path + '/mlp')
-    loss, grads = nj.grad(params.keys(), self.loss, x, y)
+    params = self.state('mlp')
+    loss, grads = nj.grad(params, self.loss, x, y)
     params = jax.tree_map(lambda p, g: p - 0.01 * p, params, grads)
-    nj.state().update(params)
+    self.update(params)
     return {'loss': loss}
 
   def loss(self, x, y):
