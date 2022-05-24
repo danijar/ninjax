@@ -124,7 +124,20 @@ class Module(object, metaclass=ModuleMeta):
     """The unique name scope of this module instance as a string."""
     return self._path
 
-  def state(self, filter=r'.*', allow_empty=False):
+  def get(self, name, *args, **kwargs):
+    """Retrieve or create a state entry that belongs to this module."""
+    state_ = state()
+    name = self.path + '/' + name
+    if name not in state_:
+      ctor, *args = args
+      state_[name] = ctor(*args, **kwargs)
+    return state_[name]
+
+  def put(self, name, value):
+    """Update or create a single state entry that belongs to this module."""
+    self.update({self.path + '/' + name: value})
+
+  def get_state(self, filter=r'.*', allow_empty=False):
     """Read the state entries of this module, optionally filtered by regex."""
     state_ = state()
     filter = re.compile(filter)
@@ -139,26 +152,13 @@ class Module(object, metaclass=ModuleMeta):
       raise KeyError(f'Filter {filter} matched no state keys.')
     return results
 
-  def update(self, mapping):
+  def put_state(self, mapping):
     """Update or create multiple state entries that belong to this module."""
     prefix = self.path + '/'
     for key in mapping:
       if not key.startswith(prefix):
         raise KeyError(f'Key {key} does not belong to module {self.path}.')
     state().update(mapping)
-
-  def get(self, name, *args, **kwargs):
-    """Retrieve or create a state entry that belongs to this module."""
-    state_ = state()
-    name = self.path + '/' + name
-    if name not in state_:
-      ctor, *args = args
-      state_[name] = ctor(*args, **kwargs)
-    return state_[name]
-
-  def put(self, name, value):
-    """Update or create a single state entry that belongs to this module."""
-    self.update({self.path + '/' + name: value})
 
 
 def grad(fn, keys):

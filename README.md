@@ -25,10 +25,10 @@ use different training logic. It becomes worse when modules can be swapped for
 each other, e.g. based on config flags.
 
 Ninjax solves this problem by giving each `nj.Module` full read and write
-access to its own state, while remaining functional via `nj.run()`. This means
-the module can contain `train()` functions to implement custom training logic,
-and call each other's train functions. It's also a lot more like PyTorch and
-TensorFlow 2, which can be easier to reason about.
+access to its state, while remaining functional via `nj.run()`. This means
+modules can have `train()` functions to implement custom training logic, and
+call each other's train functions. It's also closer to PyTorch and TensorFlow
+2, which can be easier to reason about.
 
 ## Installation
 
@@ -67,10 +67,10 @@ class Model(nj.Module):
 
   def train(self, x, y):
     self(x)  # Ensure parameters are created.
-    state = self.state()
+    state = self.get_state()
     loss, grad = nj.grad(self.loss, state)(x, y)
     state = jax.tree_map(lambda p, g: p - 0.01 * g, state, grad)
-    self.update(state)
+    self.put_state(state)
     return loss
 
   def loss(self, x, y):
@@ -102,8 +102,8 @@ class nj.Module:
   @path                                 # Unique scope string for this module.
   def get(name, ctor, *args, **kwargs)  # Get or create state entry.
   def put(name, value)                  # Update state entry.
-  def state(filter='.*')                # Get multiple state entries.
-  def update(entries)                   # Update multiple state entries.
+  def get_state(filter='.*')            # Get multiple state entries.
+  def put_state(entries)                # Update multiple state entries.
 
 # Return the mutable global state dictionary.
 state = nj.state()
@@ -114,14 +114,15 @@ rng = nj.rng()
 # Compute the gradient with respect to global state entries, specified by key.
 grad = nj.grad(fn, keys)(*args, **kwargs)
 
-# Convenience wrappers for popular JAX libraries that automate the manual
-# initialization and state passing that these libraries require:
+# Ninjax provides convenience wrappers for popular JAX libraries. These
+# automate the manual initialization and state passing that these libraries
+# require for you:
 
 mlp = nj.HaikuModule(hk.nets.MLP, [128, 128, 32])
-mlp(inputs)  # Parameters are initialized on first call.
+outputs = mlp(inputs)
 
 opt = nj.OptaxModule(optax.adam(1e-3))
-opt(mlp.state(), loss, data)  # Train the MLP with a loss function.
+opt(mlp.get_state(), loss, data)  # Train the MLP with a loss function.
 ```
 
 ## Tutorial
@@ -147,13 +148,13 @@ state, use `nj.grad(fn, keys)`:
 class Module(nj.Module):
 
   def train(self, x, y):
-    params = self.state()
+    params = self.get_state('.*')
     loss, grads = nj.grad(self.loss, params.keys())(x, y)
     params = jax.tree_map(lambda p, g: p - 0.01 * g, params, grads)
-    self.update(params)
+    self.put_state(params)
 ```
 
-The `self.state(filter)` method optionally accepts a regex pattern to select
+The `self.get_state(filter='.*')` method optionally accepts a regex pattern to select
 only a subset of the state dictionary. It also returns only state entries of
 the current module. To access the global state, use `nj.state()`.
 
@@ -216,9 +217,15 @@ class Module(nj.Module):
 
   def train(self, x, y):
     self.mlp(x)  # Ensure paramters are created.
-    metrics = self.opt(self.mlp.state(), self.loss, x, y)
+    metrics = self.opt(self.mlp.get_state('.*'), self.loss, x, y)
     return metrics  # {'loss': ..., 'grad_norm': ...}
 
   def loss(self, x, y):
     return ((self.mlp(x) - y) ** 2).mean()
 ```
+
+## Questions
+
+If you have a question, please [file an issue][issues].
+
+[issues]: https://github.com/danijar/ninjax/issues
