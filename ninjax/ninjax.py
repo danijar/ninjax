@@ -135,7 +135,7 @@ class Module(object, metaclass=ModuleMeta):
 
   def put(self, name, value):
     """Update or create a single state entry that belongs to this module."""
-    self.update({self.path + '/' + name: value})
+    self.set_state({self.path + '/' + name: value})
 
   def get_state(self, filter=r'.*', allow_empty=False):
     """Read the state entries of this module, optionally filtered by regex."""
@@ -152,7 +152,7 @@ class Module(object, metaclass=ModuleMeta):
       raise KeyError(f'Filter {filter} matched no state keys.')
     return results
 
-  def put_state(self, mapping):
+  def set_state(self, mapping):
     """Update or create multiple state entries that belong to this module."""
     prefix = self.path + '/'
     for key in mapping:
@@ -189,16 +189,26 @@ class HaikuModule(Module):
     return self.transformed.apply(state, rng(), *args, **kwargs)
 
 
+class FlaxModule(Module):
+
+  def __init__(self, ctor, *args, **kwargs):
+    self.module = ctor(*args, **kwargs)
+
+  def __call__(self, *args, **kwargs):
+    state = self.get('flax', self.module.init, rng(), *args, **kwargs)
+    return self.module.apply(state, *args, **kwargs)
+
+
 class OptaxModule(Module):
 
-  def __init__(self, opt):
-    self.opt = opt
+  def __init__(self, ctor, *args, **kwargs):
+    self.opt = ctor(*args, **kwargs)
 
   def __call__(self, params, loss, *args, **kwargs):
     import optax
-    loss, grads = nj.grad(loss, params.keys())(*args, **kwargs)
+    loss, grads = grad(loss, params.keys())(*args, **kwargs)
     optstate = self.get('state', self.opt.init, params)
     updates, optstate = self.opt.update(grads, optstate)
     self.put('state', optstate)
-    nj.state().update(optax.apply_updates(params, updates))
+    state().update(optax.apply_updates(params, updates))
     return {'loss': loss.mean(), 'grad_norm': optax.global_norm(grads)}

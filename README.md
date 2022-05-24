@@ -2,11 +2,10 @@
 
 # 🥷  Ninjax
 
-Ninjax brings the flexibility of PyTorch and TensorFlow 2 to [JAX][jax]. Ninjax
-is a lightweight module system for JAX that makes it easy to have nested
-modules that update their own state (e.g. have their own `train()` functions).
-It's fully compatible with and intended to be used together with neural network
-libraries, such as [Flax][flax] or [Haiku][flax].
+Ninjax is a lightweight module system for [JAX][jax] that gives modules full
+control over their state (e.g. have their own `train()` functions). It also
+makes it easy to use modules from different libraries together, such as
+[Flax][flax] or [Haiku][flax].
 
 [jax]: https://github.com/google/jax
 [flax]: https://github.com/google/flax
@@ -14,21 +13,17 @@ libraries, such as [Flax][flax] or [Haiku][flax].
 
 ## Motivation
 
-Existing neural network libraries for JAX provide modules, but those modules
-can only specify neural graphs and cannot contain their own training logic for
-updating their paramters.
-
-As a result, all training logic has be orchestrated in one place, outside of
-the modules. That's fine for simple algorithms with one global loss and one
-optimizer. But it becomes tricky when there are multiple modules involved that
-use different training logic. It becomes worse when modules can be swapped for
-each other, e.g. based on config flags.
+Existing neural network libraries for JAX provide modules, but their modules
+only specify neural graphs and cannot easily implement their own training
+logic. Orchestrating training logic all in one place, outside of the modules,
+is fine for simple code bases. But it becomes a problem when there are mnay
+modules with their own training logic and optimizers.
 
 Ninjax solves this problem by giving each `nj.Module` full read and write
 access to its state, while remaining functional via `nj.run()`. This means
 modules can have `train()` functions to implement custom training logic, and
-call each other's train functions. It's also closer to PyTorch and TensorFlow
-2, which can be easier to reason about.
+call each other's train functions. Ninjax is intended to be used with one (or
+more) neural network libraries, such as [Haiku][haiku] and [Flax][flax].
 
 ## Installation
 
@@ -45,6 +40,7 @@ pip install ninjax
 
 ```python3
 import haiku as hk
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import ninjax as nj
@@ -57,7 +53,7 @@ class Model(nj.Module):
     self.act = act
     self.h1 = nj.HaikuModule(hk.Linear, 128)
     self.h2 = nj.HaikuModule(hk.Linear, 128)
-    self.h3 = nj.HaikuModule(hk.Linear, size)
+    self.h3 = nj.FlaxModule(nn.Linear, size)
 
   def __call__(self, x):
     x = self.act(self.h1(x))
@@ -70,7 +66,7 @@ class Model(nj.Module):
     state = self.get_state()
     loss, grad = nj.grad(self.loss, state)(x, y)
     state = jax.tree_map(lambda p, g: p - 0.01 * g, state, grad)
-    self.put_state(state)
+    self.set_state(state)
     return loss
 
   def loss(self, x, y):
@@ -101,9 +97,9 @@ state, out = nj.run(state, rng, fn, *args, **kwargs)
 class nj.Module:
   @path                                 # Unique scope string for this module.
   def get(name, ctor, *args, **kwargs)  # Get or create state entry.
-  def put(name, value)                  # Update state entry.
+  def set(name, value)                  # Update state entry.
   def get_state(filter='.*')            # Get multiple state entries.
-  def put_state(entries)                # Update multiple state entries.
+  def set_state(entries)                # Update multiple state entries.
 
 # Return the mutable global state dictionary.
 state = nj.state()
@@ -121,7 +117,7 @@ grad = nj.grad(fn, keys)(*args, **kwargs)
 mlp = nj.HaikuModule(hk.nets.MLP, [128, 128, 32])
 outputs = mlp(inputs)
 
-opt = nj.OptaxModule(optax.adam(1e-3))
+opt = nj.OptaxModule(optax.adam, 1e-3)
 opt(mlp.get_state(), loss, data)  # Train the MLP with a loss function.
 ```
 
@@ -151,7 +147,7 @@ class Module(nj.Module):
     params = self.get_state('.*')
     loss, grads = nj.grad(self.loss, params.keys())(x, y)
     params = jax.tree_map(lambda p, g: p - 0.01 * g, params, grads)
-    self.put_state(params)
+    self.set_state(params)
 ```
 
 The `self.get_state(filter='.*')` method optionally accepts a regex pattern to select
@@ -201,6 +197,32 @@ MLP = functools.partial(nj.HaikuModule, hk.nets.MLP)
 # ...
 ```
 
+### How can I use Flax modules?
+
+There is nothing special about using external libraries with Ninjax. Flax
+requires its modules to be initialized via `params = model.init(rng, batch)`
+and used via `model.apply(params, data)`. For convenience, Ninjax provides
+`nj.FlaxModule` to do this for you:
+
+```python3
+class Module(nj.Module):
+
+  def __init__(self):
+    self.linear = nj.FlaxModule(nn.Dense, 128)
+
+  def __call__(self, x):
+    return self.linear(x)
+```
+
+You can also predefine a list of aliases for Flax modules that you want to use
+frequently:
+
+```python3
+Dense = functools.partial(nj.FlaxModule, nn.Dense)
+Conv = functools.partial(nj.FlaxModule, nn.Conv)
+# ...
+```
+
 ### How can I use Optax optimizers?
 
 There is nothing special about using external libraries like Optax with Ninjax.
@@ -213,7 +235,7 @@ class Module(nj.Module):
 
   def __init__(self):
     self.mlp = MLP()
-    self.opt = nj.OptaxModule(optax.adam(1e-3))
+    self.opt = nj.OptaxModule(optax.adam, 1e-3)
 
   def train(self, x, y):
     self.mlp(x)  # Ensure paramters are created.

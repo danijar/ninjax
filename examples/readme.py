@@ -21,10 +21,10 @@ class Model(nj.Module):
 
   def train(self, x, y):
     self(x)  # Create weights needed for gradient.
-    state = self.state()
+    state = self.get_state()
     loss, grad = nj.grad(self.loss, state)(x, y)
     state = jax.tree_map(lambda p, g: p - 0.01 * g, state, grad)
-    self.update(state)
+    self.set_state(state)
     return loss
 
   def loss(self, x, y):
