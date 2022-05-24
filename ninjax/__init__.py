@@ -5,3 +5,4 @@ from .ninjax import scope
 from .ninjax import Module
 from .ninjax import grad
 from .ninjax import HaikuModule
+from .ninjax import OptaxModule

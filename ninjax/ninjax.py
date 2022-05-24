@@ -187,3 +187,18 @@ class HaikuModule(Module):
   def __call__(self, *args, **kwargs):
     state = self.get('haiku', self.transformed.init, rng(), *args, **kwargs)
     return self.transformed.apply(state, rng(), *args, **kwargs)
+
+
+class OptaxModule(Module):
+
+  def __init__(self, opt):
+    self.opt = opt
+
+  def __call__(self, params, loss, *args, **kwargs):
+    import optax
+    loss, grads = nj.grad(loss, params.keys())(*args, **kwargs)
+    optstate = self.get('state', self.opt.init, params)
+    updates, optstate = self.opt.update(grads, optstate)
+    self.put('state', optstate)
+    nj.state().update(optax.apply_updates(params, updates))
+    return {'loss': loss.mean(), 'grad_norm': optax.global_norm(grads)}
