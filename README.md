@@ -1,3 +1,5 @@
+[![PyPI](https://img.shields.io/pypi/v/ninjax.svg)](https://pypi.python.org/pypi/ninjax/#history)
+
 # 🥷  Ninjax
 
 Ninjax brings the flexibility of PyTorch and TensorFlow 2 to [JAX][jax]. Ninjax
@@ -53,12 +55,12 @@ for x, y in dataset:
   print('Loss:', float(loss))
 ```
 
-## Frequently Asked Questions
+## How To
 
 ### How can I use JIT compilation?
 
-The `nj.run()` function makes the state used by your JAX code explicit, so it
-can be jitted and transformed freely:
+The `nj.run()` function makes the state your JAX code uses explicit, so it can
+be jitted and transformed freely:
 
 ```python3
 model = Model()
@@ -88,7 +90,7 @@ the current module. To access the global state, use `nj.state()`.
 
 ### How can I define modules compactly?
 
-Yes, you can use `self.get(name, ctor, *args, **kwargs)` inside methods of your
+You can use `self.get(name, ctor, *args, **kwargs)` inside methods of your
 modules. When called for the first time, it creates a new state entry from the
 constructor `ctor(*args, **kwargs)`. Later calls return the existing entry:
 
