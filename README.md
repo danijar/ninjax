@@ -4,12 +4,24 @@
 
 Ninjax brings the flexibility of PyTorch and TensorFlow 2 to [JAX][jax]. Ninjax
 is a simple state manager for JAX that makes it easy to have nested components
-that update their own state. It's intended to be used together with a neural
-network library, such as [Flax][flax] or [Haiku][flax].
+that update their own state (e.g. have their own `train()` functions). It's
+intended to be used together with a neural network library, such as
+[Flax][flax] or [Haiku][flax].
 
 [jax]: https://github.com/google/jax
 [flax]: https://github.com/google/flax
 [haiku]: https://github.com/deepmind/dm-haiku
+
+## Installation
+
+Ninjax is [a single file][file], so you can just copy it to your project
+directory. Or you can install the package:
+
+```
+pip install ninjax
+```
+
+[file]: https://github.com/danijar/ninjax/blob/main/ninjax/ninjax.py
 
 ## Quickstart
 
@@ -55,7 +67,7 @@ for x, y in dataset:
   print('Loss:', float(loss))
 ```
 
-## How To
+## Guide
 
 ### How can I use JIT compilation?
 
