@@ -174,3 +174,16 @@ def grad(fn, keys):
     x = {k: state_[k] for k in keys}
     return grad_fn(x, *args, **kwargs)
   return wrapper
+
+
+class HaikuModule(Module):
+
+  def __init__(self, ctor, *args, **kwargs):
+    import haiku as hk
+    def net(*args_, **kwargs_):
+      return ctor(*args, **kwargs)(*args_, **kwargs_)
+    self.transformed = hk.transform(net)
+
+  def __call__(self, *args, **kwargs):
+    state = self.get('haiku', self.transformed.init, rng(), *args, **kwargs)
+    return self.transformed.apply(state, rng(), *args, **kwargs)
