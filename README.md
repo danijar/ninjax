@@ -79,47 +79,8 @@ main = jax.random.PRNGKey(0)
 state = {}
 for x, y in dataset:
   rng, main = jax.random.split(main)
-  state, loss = nj.run(model.train, state, rng, x, y)
+  loss, state = nj.run(model.train, state, rng, x, y)
   print('Loss:', float(loss))
-```
-
-## API
-
-Ninjax uses a simple API that provides flexible access to state. The `nj.run()`
-lets you call your modules from the outside. All other functions are to be used
-in your modules or other code that is within the `nj.run()` call.
-
-```python3
-# Run a function or method that uses Ninjax state.
-state, out = nj.run(state, rng, fn, *args, **kwargs)
-
-# Inherit your modules from this class for automatic name scoping and helper
-# functions for accesing the state that belongs to this module.
-class nj.Module:
-  @path                                 # Unique scope string for this module.
-  def get(name, ctor, *args, **kwargs)  # Get or create state entry.
-  def put(name, value)                  # Update state entry.
-  def get_state(filter='.*')            # Get multiple state entries.
-  def set_state(entries)                # Update multiple state entries.
-
-# Return the mutable global state dictionary.
-state = nj.state()
-
-# Get a unique random number generator key.
-rng = nj.rng()
-
-# Compute the gradient with respect to global state entries, specified by key.
-grad = nj.grad(fn, keys)(*args, **kwargs)
-
-# Ninjax provides convenience wrappers for popular JAX libraries. These
-# automate the manual initialization and state passing that these libraries
-# require for you:
-
-mlp = nj.HaikuModule(hk.nets.MLP, [128, 128, 32])
-outputs = mlp(inputs)
-
-opt = nj.OptaxModule(optax.adam, 1e-3)
-opt(mlp.get_state(), loss, data)  # Train the MLP with a loss function.
 ```
 
 ## Tutorial

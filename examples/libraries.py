@@ -47,7 +47,7 @@ def main():
   main = jax.random.PRNGKey(0)
   for step in range(5):
     rng, main = jax.random.split(main)
-    state, metrics = train(state, rng, x, y)
+    metrics, state = train(state, rng, x, y)
     print('Loss:', float(metrics['loss']))
 
 

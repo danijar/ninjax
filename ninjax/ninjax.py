@@ -4,6 +4,7 @@ import inspect
 import re
 
 import jax
+import jax.numpy as jnp
 
 
 STATE = [None]
@@ -24,7 +25,7 @@ def run(fn, state, rng, *a, **k):
   out = fn(*a, **k)
   STATE[0] = None
   RNG[0] = None
-  return state, out
+  return out, state
 
 
 def state():
@@ -102,6 +103,7 @@ class ModuleMeta(type):
     else:
       cls.COUNTERS[path] = 1
     obj._path = path
+    obj._submodules = {}
     init = _scope_method(cls.__init__)
     init(obj, *args, **kwargs)
     return obj
@@ -129,15 +131,24 @@ class Module(object, metaclass=ModuleMeta):
     return self._path
 
   def get(self, name, *args, **kwargs):
+    # TODO: Add separate functions for accessing modules and numeric state.
     """Retrieve or create a state entry that belongs to this module."""
     state_ = state()
     path = self.path + '/' + name
-    if path not in state_:
-      ctor, *args = args
-      if 'name' in inspect.signature(ctor).parameters:
-        kwargs['name'] = name
-      state_[path] = ctor(*args, **kwargs)
-    return state_[path]
+    if name in self._submodules:
+      return self._submodules[name]
+    if path in state_:
+      return state_[path]
+    ctor, *args = args
+    if 'name' in inspect.signature(ctor).parameters:
+      kwargs['name'] = name
+    value = ctor(*args, **kwargs)
+    flat, _ = jax.tree_util.tree_flatten(value)
+    if all(isinstance(x, jnp.ndarray) for x in flat):
+      state_[path] = value
+    else:
+      self._submodules[name] = value
+    return value
 
   def put(self, name, value):
     """Update or create a single state entry that belongs to this module."""

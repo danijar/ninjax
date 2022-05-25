@@ -37,5 +37,5 @@ main = jax.random.PRNGKey(0)
 state = {}
 for x, y in dataset:
   rng, main = jax.random.split(main)
-  state, loss = nj.run(model.train, state, rng, x, y)
+  loss, state = nj.run(model.train, state, rng, x, y)
   print('Loss:', float(loss))
