@@ -1,11 +1,12 @@
 [![PyPI](https://img.shields.io/pypi/v/ninjax.svg)](https://pypi.python.org/pypi/ninjax/#history)
 
-# 🥷  Ninjax
+# 🥷  Ninjax: General Modules for JAX
 
-Ninjax is a lightweight module system for [JAX][jax] that gives modules full
-control over their state (e.g. to have their own `train()` functions). It also
-makes it easy to use modules from different libraries together, such as
-[Flax][flax] and [Haiku][flax].
+Ninjax is a general module system for [JAX][jax]. It gives the user complete
+and transparent control over updating the state of each module, bringing the
+flexibility of PyTorch and TensorFlow to JAX. Moreover, Ninjax makes it easy to
+mix and match modules from different libraries, such as [Flax][flax] and
+[Haiku][flax].
 
 [jax]: https://github.com/google/jax
 [flax]: https://github.com/google/flax
