@@ -15,6 +15,10 @@ def run(fn, state, rng, *a, **k):
   """Run a function or method that uses the global state or the global RNG
   key. The new global state and function output are returned."""
   global STATE
+  if state is None:
+    raise ValueError('Must provide a dict as state.')
+  if STATE[0] is not None:
+    raise RuntimeError('You cannot nest run() calls.')
   STATE[0] = state
   RNG[0] = rng
   out = fn(*a, **k)
@@ -90,14 +94,14 @@ class ModuleMeta(type):
     name and path for the module instance."""
     obj = cls.__new__(cls)
     name = name or cls.__name__
-    if name in cls.COUNTERS:
-      cls.COUNTERS[name] += 1
-      name += str(cls.COUNTERS[name])
+    global SCOPE
+    path = SCOPE[0] + '/' + name
+    if path in cls.COUNTERS:
+      cls.COUNTERS[path] += 1
+      path += str(cls.COUNTERS[path])
     else:
-      cls.COUNTERS[name] = 1
-    obj.name = name
-    with scope(name) as path:
-      obj._path = path
+      cls.COUNTERS[path] = 1
+    obj._path = path
     init = _scope_method(cls.__init__)
     init(obj, *args, **kwargs)
     return obj
@@ -127,29 +131,31 @@ class Module(object, metaclass=ModuleMeta):
   def get(self, name, *args, **kwargs):
     """Retrieve or create a state entry that belongs to this module."""
     state_ = state()
-    name = self.path + '/' + name
-    if name not in state_:
+    path = self.path + '/' + name
+    if path not in state_:
       ctor, *args = args
-      state_[name] = ctor(*args, **kwargs)
-    return state_[name]
+      if 'name' in inspect.signature(ctor).parameters:
+        kwargs['name'] = name
+      state_[path] = ctor(*args, **kwargs)
+    return state_[path]
 
   def put(self, name, value):
     """Update or create a single state entry that belongs to this module."""
     self.set_state({self.path + '/' + name: value})
 
-  def get_state(self, filter=r'.*', allow_empty=False):
+  def get_state(self, pattern=r'.*', allow_empty=False):
     """Read the state entries of this module, optionally filtered by regex."""
     state_ = state()
-    filter = re.compile(filter)
+    pattern = re.compile(pattern)
     prefix = self.path + '/'
     results = {}
     for key, value in state_.items():
       if not key.startswith(prefix):
         continue
-      if filter.match(key[len(prefix):]):
+      if pattern.match(key[len(prefix):]):
         results[key] = value
     if not allow_empty and not results:
-      raise KeyError(f'Filter {filter} matched no state keys.')
+      raise KeyError(f'Pattern {pattern} matched no state keys.')
     return results
 
   def set_state(self, mapping):
@@ -161,14 +167,14 @@ class Module(object, metaclass=ModuleMeta):
     state().update(mapping)
 
 
-def grad(fn, keys):
+def grad(fn, keys, has_aux=False):
   """Compute the value and gradient of a function with respect to the state
   entries of the provided keys."""
   state_ = state()
   def inner(x, *args, **kwargs):
     state_.update(x)
     return fn(*args, **kwargs)
-  grad_fn = jax.value_and_grad(inner)
+  grad_fn = jax.value_and_grad(inner, has_aux=has_aux)
   @functools.wraps(grad_fn)
   def wrapper(*args, **kwargs):
     x = {k: state_[k] for k in keys}
@@ -185,7 +191,7 @@ class HaikuModule(Module):
     self.transformed = hk.transform(net)
 
   def __call__(self, *args, **kwargs):
-    state = self.get('haiku', self.transformed.init, rng(), *args, **kwargs)
+    state = self.get('state', self.transformed.init, rng(), *args, **kwargs)
     return self.transformed.apply(state, rng(), *args, **kwargs)
 
 
@@ -195,7 +201,7 @@ class FlaxModule(Module):
     self.module = ctor(*args, **kwargs)
 
   def __call__(self, *args, **kwargs):
-    state = self.get('flax', self.module.init, rng(), *args, **kwargs)
+    state = self.get('state', self.module.init, rng(), *args, **kwargs)
     return self.module.apply(state, *args, **kwargs)
 
 
