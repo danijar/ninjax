@@ -182,14 +182,18 @@ def grad(fn, keys, has_aux=False):
   """Compute the value and gradient of a function with respect to the state
   entries of the provided keys."""
   state_ = state()
+  before = state_.copy()
   def inner(x, *args, **kwargs):
     state_.update(x)
-    return fn(*args, **kwargs)
+    out = fn(*args, **kwargs)
+    return out
   grad_fn = jax.value_and_grad(inner, has_aux=has_aux)
   @functools.wraps(grad_fn)
   def wrapper(*args, **kwargs):
     x = {k: state_[k] for k in keys}
-    return grad_fn(x, *args, **kwargs)
+    out = grad_fn(x, *args, **kwargs)
+    state_.update(before)
+    return out
   return wrapper
 
 
