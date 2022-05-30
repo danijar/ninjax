@@ -153,6 +153,7 @@ class Module(object, metaclass=ModuleMeta):
   def put(self, name, value):
     """Update or create a single state entry that belongs to this module."""
     self.set_state({self.path + '/' + name: value})
+    return value
 
   def get_state(self, pattern=r'.*', allow_empty=False):
     """Read the state entries of this module, optionally filtered by regex."""
