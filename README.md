@@ -68,6 +68,9 @@ class Model(nj.Module):
     loss, grad = nj.grad(self.loss, state)(x, y)
     state = jax.tree_map(lambda p, g: p - 0.01 * g, state, grad)
     self.set_state(state)
+    # Get and put variables.
+    counter = nj.get('counter', jnp.zeros, (), jnp.int32)
+    self.put('counter', counter + 1)
     return loss
 
   def loss(self, x, y):
@@ -84,6 +87,43 @@ for x, y in dataset:
 ```
 
 ## Tutorial
+
+### How can I create state entries?
+
+Ninjax gives modules full control over reading and updating their state
+entries. Use `self.get(name, ctor, *args, **kwargs)` to define state entries.
+The first call creates the entry as `ctor(*args, **kwargs)`. Later calls return
+the current value:
+
+```python3
+class Module(nj.Module):
+
+  def compute(self, x):
+    init = jax.nn.initializers.variance_scaling(1, 'fan_avg', 'uniform')
+    weights = self.get('weights', init, nj.rng(), (64, 32))
+    bias = self.get('bias', jnp.zeros, (32,), jnp.float32)
+    print(self.get_state())  # {'/path/to/module/weights': ..., '/path/to/module/bias': ...}
+    return x @ weights + bias
+```
+
+### How can I update state entries?
+
+To update the state entries of a module, use `self.put(name, value)` for
+individual entries of `self.set_state(mapping)` to update multiple values:
+
+```python3
+class Module(nj.Module):
+
+  def counting(self):
+    counter = nj.get('counter', jnp.zeros, (), jnp.int32)
+    self.put('counter', counter + 1)
+    print(self.get('counter'))  # 1
+    state = self.get_state()
+    state['counter'] += 1
+    self.set_state(state)
+    print(self.get_state()['counter'])  # 2
+    print(self.get('counter'))  # 2
+```
 
 ### How can I use JIT compilation?
 
