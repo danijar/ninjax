@@ -7,65 +7,69 @@ import jax
 import jax.numpy as jnp
 
 
-STATE = [None]
+FRAME = [None]
 SCOPE = ['']
-RNG = [None]
-RESERVE = [None]
+
+
+class Frame:
+
+  def __init__(self, state, rng, reserve, creating):
+    self.state = state
+    self.rng = rng
+    self.reserve = reserve
+    self.creating = creating
+
+
+def frame():
+  global FRAME
+  if FRAME[0] is None:
+    raise RuntimeError('Run stateful functions with run().')
+  return FRAME[0]
 
 
 def reset():
-  # global STATE, SCOPE, RNG, RESERVE
+  global FRAME
   ModuleMeta.COUNTERS.clear()
-  # STATE[0] = None
-  # SCOPE[0] = ''
-  # RNG[0] = None
-  # RESERVE[0] = []
+  FRAME[0] = None
 
 
-def run(fn, state, rng, *args, nested=False, **kwargs):
+def run(fn, state, rng, *args, nested=False, creating=True, **kwargs):
   """Run a function or method that uses the global state or the global RNG
   key. The new global state and function output are returned."""
-  global STATE
+  global FRAME
   if not isinstance(state, dict):
     raise ValueError('Must provide a dict as state.')
-  if (STATE[0] is not None) and (not nested):
-    print(STATE)
+  if (FRAME[0] is not None) and (not nested):
     raise RuntimeError(
-        'If you really want to nest run() calls, use nested=False.')
-  before = STATE[0], RNG[0], RESERVE[0]
+        'If you really want to nest run() calls, use nested=True.')
+  before = FRAME[0]
   try:
-    STATE[0] = state
-    RNG[0] = rng
-    RESERVE[0] = []
+    FRAME[0] = Frame(state, rng, [], creating)
     out = fn(*args, **kwargs)
+    state = FRAME[0].state
+    return out, state
   finally:
-    STATE[0], RNG[0], RESERVE[0] = before
-  return out, state
+    FRAME[0] = before
 
 
 def state():
   """Access the global state tree. You can modify the state tree inplace."""
-  global STATE
-  if STATE[0] is None:
-    raise RuntimeError('Run stateful functions with run().')
-  return STATE[0]
+  return frame().state
 
 
 def rng(amount=None, reserve=16):
   """Split the global RNG key and return a local key."""
-  global RNG, RESERVE
-  if RNG[0] is None:
-    raise RuntimeError('Run functions that use the global RNG key with run().')
+  frame_ = frame()
   if amount:
-    keys = jax.random.split(RNG[0], amount + 1)
-    RNG[0] = keys[0]
+    keys = jax.random.split(frame_.rng, amount + 1)
+    frame_.rng = keys[0]
     return keys[1:]
   else:
-    if not RESERVE[0]:
-      keys = jax.random.split(RNG[0], reserve)
-      RNG[0] = keys[0]
-      RESERVE[0] = list(keys[1:])
-    return RESERVE[0].pop(0)
+    if not frame_.reserve:
+      keys = jax.random.split(frame_.rng, reserve)
+      frame_.rng = keys[0]
+      frame_.reserve = list(keys[1:])
+    return frame_.reserve.pop(0)
 
 
 @contextlib.contextmanager
@@ -154,7 +158,6 @@ class Module(object, metaclass=ModuleMeta):
     return self._path
 
   def get(self, name, *args, **kwargs):
-    # TODO: Add separate functions for accessing modules and numeric state.
     """Retrieve or create a state entry that belongs to this module."""
     state_ = state()
     path = self.path + '/' + name
@@ -162,6 +165,10 @@ class Module(object, metaclass=ModuleMeta):
       return self._submodules[name]
     if path in state_:
       return state_[path]
+    if not frame().creating:
+      raise RuntimeError(
+          'Cannot create new variables inside symbolic loops. Call the inner '
+          'function at least once before the loop.')
     ctor, *args = args
     if 'name' in inspect.signature(ctor).parameters:
       kwargs['name'] = name
@@ -236,18 +243,16 @@ def grad(fn, keys, has_aux=False):
 
 
 def cond(pred, true_fn, false_fn, *operands):
-  global STATE
   out, state = jax.lax.cond(
       pred,
-      lambda rng1, rng2, *args: run(true_fn, STATE[0], rng1, *args, nested=True),
-      lambda rng1, rng2, *args: run(false_fn, STATE[0], rng2, *args, nested=True),
-      *rng(2), *operands)
-  STATE[0] = state
+      lambda state, rng1, rng2, *args: run(true_fn, state, rng1, *args, nested=True),
+      lambda state, rng1, rng2, *args: run(false_fn, state, rng2, *args, nested=True),
+      frame().state, *rng(2), *operands)
+  frame().state = state
   return out
 
 
 def scan(f, init, xs, length=None, reverse=False, unroll=1):
-  global STATE
 
   # # Run once outside of LAX to initialize variables, but do not update
   # # variables that already exist to reduce side effects.
@@ -259,16 +264,20 @@ def scan(f, init, xs, length=None, reverse=False, unroll=1):
   #     STATE[0][key] = value
   # print('B', STATE[0])
 
+  # We currently use creating=False to forbid creating new variables inside the
+  # symbolic loop. That's because the
+
   def inner(carry, x):
     carry, state = carry
     x, rng = x
-    (carry, y), state = run(f, state, rng, carry, x, nested=True)
+    (carry, y), state = run(
+        f, state, rng, carry, x, nested=True, creating=False)
     return (carry, state), y
   rngs = rng(length or len(jax.tree_util.tree_flatten(xs)[0][0]))
   carry, ys = jax.lax.scan(
-      inner, (init, STATE[0]), (xs, rngs), length, reverse, unroll)
+      inner, (init, frame().state), (xs, rngs), length, reverse, unroll)
   carry, state = carry
-  STATE[0] = state
+  frame().state = state
   return carry, ys
 
 

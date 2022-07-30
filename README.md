@@ -248,13 +248,6 @@ class Module(nj.Module):
     return ((self.mlp(x) - y) ** 2).mean()
 ```
 
-## Limitations
-
-Ninjax is still a young library. One current limitation is that you cannot
-create new variables inside of symbolic control flow like `nj.cond()` and
-`nj.scan()`. This is the same in other common JAX frameworks. Just call the
-inner function once before the control flow to work around this.
-
 ## Questions
 
 If you have a question, please [file an issue][issues].
