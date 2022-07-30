@@ -250,10 +250,10 @@ class Module(nj.Module):
 
 ## Limitations
 
-Ninjax is still a young library. One current limitation is that LAX symbolic
-control flow and computing gradients of gradients has not been tested and might
-not work correctly. If you are interested in this functionality or encounter
-any other issues, let me know.
+Ninjax is still a young library. One current limitation is that you cannot
+create new variables inside of symbolic control flow like `nj.cond()` and
+`nj.scan()`. This is the same in other common JAX frameworks. Just call the
+inner function once before the control flow to work around this.
 
 ## Questions
 

@@ -10,21 +10,36 @@ import jax.numpy as jnp
 STATE = [None]
 SCOPE = ['']
 RNG = [None]
+RESERVE = [None]
 
 
-def run(fn, state, rng, *a, **k):
+def reset():
+  # global STATE, SCOPE, RNG, RESERVE
+  ModuleMeta.COUNTERS.clear()
+  # STATE[0] = None
+  # SCOPE[0] = ''
+  # RNG[0] = None
+  # RESERVE[0] = []
+
+
+def run(fn, state, rng, *args, nested=False, **kwargs):
   """Run a function or method that uses the global state or the global RNG
   key. The new global state and function output are returned."""
   global STATE
-  if state is None:
+  if not isinstance(state, dict):
     raise ValueError('Must provide a dict as state.')
-  if STATE[0] is not None:
-    raise RuntimeError('You cannot nest run() calls.')
-  STATE[0] = state
-  RNG[0] = rng
-  out = fn(*a, **k)
-  STATE[0] = None
-  RNG[0] = None
+  if (STATE[0] is not None) and (not nested):
+    print(STATE)
+    raise RuntimeError(
+        'If you really want to nest run() calls, use nested=False.')
+  before = STATE[0], RNG[0], RESERVE[0]
+  try:
+    STATE[0] = state
+    RNG[0] = rng
+    RESERVE[0] = []
+    out = fn(*args, **kwargs)
+  finally:
+    STATE[0], RNG[0], RESERVE[0] = before
   return out, state
 
 
@@ -36,13 +51,21 @@ def state():
   return STATE[0]
 
 
-def rng():
+def rng(amount=None, reserve=16):
   """Split the global RNG key and return a local key."""
-  global RNG
+  global RNG, RESERVE
   if RNG[0] is None:
     raise RuntimeError('Run functions that use the global RNG key with run().')
-  RNG[0], rng = jax.random.split(RNG[0])
-  return rng
+  if amount:
+    keys = jax.random.split(RNG[0], amount + 1)
+    RNG[0] = keys[0]
+    return keys[1:]
+  else:
+    if not RESERVE[0]:
+      keys = jax.random.split(RNG[0], reserve)
+      RNG[0] = keys[0]
+      RESERVE[0] = list(keys[1:])
+    return RESERVE[0].pop(0)
 
 
 @contextlib.contextmanager
@@ -179,6 +202,20 @@ class Module(object, metaclass=ModuleMeta):
     state().update(mapping)
 
 
+class Variable(Module):
+
+  def __init__(self, ctor, *args, **kwargs):
+    self.ctor = ctor
+    self.args = args
+    self.kwargs = kwargs
+
+  def read(self):
+    return self.get('value', self.ctor, *self.args, **self.kwargs)
+
+  def write(self, value):
+    return self.put('value', value)
+
+
 def grad(fn, keys, has_aux=False):
   """Compute the value and gradient of a function with respect to the state
   entries of the provided keys."""
@@ -196,6 +233,43 @@ def grad(fn, keys, has_aux=False):
     state_.update(before)
     return out
   return wrapper
+
+
+def cond(pred, true_fn, false_fn, *operands):
+  global STATE
+  out, state = jax.lax.cond(
+      pred,
+      lambda rng1, rng2, *args: run(true_fn, STATE[0], rng1, *args, nested=True),
+      lambda rng1, rng2, *args: run(false_fn, STATE[0], rng2, *args, nested=True),
+      *rng(2), *operands)
+  STATE[0] = state
+  return out
+
+
+def scan(f, init, xs, length=None, reverse=False, unroll=1):
+  global STATE
+
+  # # Run once outside of LAX to initialize variables, but do not update
+  # # variables that already exist to reduce side effects.
+  # x = jax.tree_util.tree_map(lambda x: x[0], xs)
+  # state = run(f, STATE[0].copy(), rng, init, x, nested=True)[1]
+  # print('A', STATE[0])
+  # for key, value in state.items():
+  #   if key not in STATE[0]:
+  #     STATE[0][key] = value
+  # print('B', STATE[0])
+
+  def inner(carry, x):
+    carry, state = carry
+    x, rng = x
+    (carry, y), state = run(f, state, rng, carry, x, nested=True)
+    return (carry, state), y
+  rngs = rng(length or len(jax.tree_util.tree_flatten(xs)[0][0]))
+  carry, ys = jax.lax.scan(
+      inner, (init, STATE[0]), (xs, rngs), length, reverse, unroll)
+  carry, state = carry
+  STATE[0] = state
+  return carry, ys
 
 
 class HaikuModule(Module):

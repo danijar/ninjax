@@ -9,7 +9,7 @@ DESCRIPTION = (
 
 setuptools.setup(
     name='ninjax',
-    version='0.3.1',
+    version='0.4.0',
     description=DESCRIPTION,
     url='http://github.com/danijar/ninjax',
     long_description=pathlib.Path('README.md').read_text(),
