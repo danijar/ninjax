@@ -242,6 +242,35 @@ def grad(fn, keys, has_aux=False):
   return wrapper
 
 
+def jit(fun, *args, **kwargs):
+  """JIT transformation. The first function call skips JIT because the function
+  signature is likely to change as the state is filled."""
+  transformed = jax.jit(fun, *args, **kwargs)
+  @functools.wraps(fun)
+  def wrapper(*args2, **kwargs2):
+    if not hasattr(fun, '_initialized'):
+      fun._initialized = True
+      return fun(*args2, **kwargs2)
+    return transformed(*args2, **kwargs2)
+  return wrapper
+
+
+def pmap(fun, axis_name=None, in_axes=0, out_axes=0, axis_size=None, **kwargs):
+  """PMAP transformation. The first function call replaced PMAP with VMAP
+  because the function signature is likely to change as the state is filled."""
+  transformed_vmap = jax.vmap(fun, in_axes, out_axes, axis_name, axis_size)
+  transformed_pmap = jax.pmap(
+      fun, axis_name, in_axes=in_axes, out_axes=out_axes, axis_size=axis_size,
+      **kwargs)
+  @functools.wraps(fun)
+  def wrapper(*args2, **kwargs2):
+    if not hasattr(fun, '_initialized'):
+      fun._initialized = True
+      return transformed_vmap(*args2, **kwargs2)
+    return transformed_pmap(*args2, **kwargs2)
+  return wrapper
+
+
 def cond(pred, true_fn, false_fn, *operands):
   out, state = jax.lax.cond(
       pred,
