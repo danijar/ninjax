@@ -34,3 +34,17 @@ class TestJit:
     _, state = write(state, rng, 42)
     assert nj.pure(v.read)(state, rng)[0] == 42
     assert state == {'/Variable/value': 42}
+
+  def test_static_args(self):
+    nj.reset()
+    def program(x, mode='train'):
+      if mode == 'train':
+        return x
+      else:
+        return 2 * x
+    fun = nj.jit(nj.pure(program), static=['mode'])
+    rng = jax.random.PRNGKey(0)
+    assert fun({}, rng, jnp.array(1), mode='train')[0] == 1
+    assert fun({}, rng, jnp.array(1), mode='train')[0] == 1
+    assert fun({}, rng, jnp.array(1), mode='eval')[0] == 2
+    assert fun({}, rng, jnp.array(1), mode='eval')[0] == 2

@@ -46,7 +46,6 @@ def pure(fun, nested=False):
   state in and out. The result is a pure function that is composable with JAX
   transformation. The pure function can be used as follows:
   `out, state = fun(state, rng, *args, **kwargs)`."""
-  @functools.wraps(fun)
   def purified(
       state, rng, *args, create=True, modify=True, freeze=False, **kwargs):
     global CONTEXT
@@ -142,17 +141,21 @@ def jit(fun, static=None, **kwargs):
   if not getattr(fun, 'pure', False):
     raise ValueError('Use pure() before applying jit().')
   static = static or ()
-  names = inspect.signature(fun).parameters.keys()
-  static_argnums = tuple([i for i, n in enumerate(names) if n in static])
   compiled = jax.jit(
-      functools.partial(fun, create=False),
-      static_argnums=static_argnums, **kwargs)
+      lambda sta, *a, **kw: fun(*a, **kw, **dict(sta), create=False),
+      static_argnums=[0], **kwargs)
   @functools.wraps(compiled)
   def wrapper(*args, **kwargs):
+    for name in static:
+      if name not in kwargs:
+        raise ValueError('Please pass all static arguments by keyword.')
     if not wrapper.created:
       wrapper.created = True
       return fun(*args, create=True, **kwargs)
-    return compiled(*args, **kwargs)
+    nosta = {k: v for k, v in kwargs.items() if k not in static}
+    sta = {k: v for k, v in kwargs.items() if k in static}
+    sta = tuple(sorted(sta.items()))
+    return compiled(sta, *args, **nosta)
   wrapper.created = False
   return wrapper
 
@@ -163,21 +166,25 @@ def pmap(fun, axis_name=None, static=None, in_axes=0, out_axes=0, **kwargs):
   static = static or ()
   if not getattr(fun, 'pure', False):
     raise ValueError('Use pure() before applying pmap().')
-  names = inspect.signature(fun).parameters.keys()
-  static_argnums = tuple([i for i, n in enumerate(names) if n in static])
+  inner = lambda sta, *a, **kw: fun(*a, **kw, **dict(sta))
   compiled = jax.pmap(
-      functools.partial(fun, create=False),
+      functools.partial(inner, create=False),
       axis_name, in_axes=in_axes, out_axes=out_axes,
-      static_broadcasted_argnums=static_argnums, **kwargs)
+      static_broadcasted_argnums=[0], **kwargs)
   @functools.wraps(compiled)
   def wrapper(*args, **kwargs):
+    for name in static:
+      if name not in kwargs:
+        raise ValueError('Please pass all static arguments by keyword.')
+    nosta = {k: v for k, v in kwargs.items() if k not in static}
+    sta = {k: v for k, v in kwargs.items() if k in static}
+    sta = tuple(sorted(sta.items()))
     if not wrapper.created:
       wrapper.created = True
-      static_kwargs = {k: v for k, v in kwargs.items() if k in static}
       return jax.vmap(
-          functools.partial(fun, create=True, **static_kwargs),
-          in_axes, out_axes, axis_name)(*args, **kwargs)
-    return compiled(*args, **kwargs)
+          functools.partial(inner, sta, create=True),
+          in_axes, out_axes, axis_name)(*args, **nosta)
+    return compiled(sta, *args, **nosta)
   wrapper.created = False
   return wrapper
 

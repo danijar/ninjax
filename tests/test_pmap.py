@@ -46,3 +46,18 @@ class TestPmap:
     value, state = read(state, rng)
     assert value == jnp.array([3])
     assert state == {'/Variable/value': jnp.array([3])}
+
+  def test_static_args(self):
+    nj.reset()
+    def program(x, mode='train'):
+      if mode == 'train':
+        return x
+      else:
+        return 2 * x
+    fun = nj.pmap(nj.pure(program), static=['mode'])
+    rng = jax.random.PRNGKey(0)[None]
+    x = jnp.array([1])
+    assert fun({}, rng, x, mode='train')[0] == jnp.array([1])
+    assert fun({}, rng, x, mode='train')[0] == jnp.array([1])
+    assert fun({}, rng, x, mode='eval')[0] == jnp.array([2])
+    assert fun({}, rng, x, mode='eval')[0] == jnp.array([2])
