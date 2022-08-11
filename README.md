@@ -14,11 +14,11 @@ mix and match modules from different libraries, such as [Flax][flax] and
 
 ## Motivation
 
-Existing neural network libraries for JAX provide modules, but their modules
-only specify neural graphs and cannot easily implement their own training
-logic. Orchestrating training logic all in one place, outside of the modules,
-is fine for simple code bases. But it becomes a problem when there are mnay
-modules with their own training logic and optimizers.
+Existing deep learning libraries for JAX provide modules, but those modules
+only specify neural networks and cannot easily implement training logic.
+Orchestrating training all in one place, outside of the modules, is fine for
+simple code bases. But it becomes a problem when there are many modules with
+their own training logic and optimizers.
 
 Ninjax solves this problem by giving each `nj.Module` full read and write
 access to its state. This means modules can have `train()` functions to
@@ -51,7 +51,7 @@ import ninjax as nj
 Linear = functools.partial(nj.HaikuModule, hk.Linear)
 
 
-class Model(nj.Module):
+class MyModel(nj.Module):
 
   def __init__(self, size, lr=0.01, act=jax.nn.relu):
     self.size = size
@@ -86,7 +86,7 @@ class Model(nj.Module):
 # The complete state is stored in a flat dictionary. Ninjax automatically
 # applies scopes to the string keys based on the module names.
 state = {}
-model = Model(8)
+model = MyModel(8)
 train = nj.pure(model.train)  # nj.jit(...), nj.pmap(...)
 main = jax.random.PRNGKey(0)
 
@@ -98,7 +98,7 @@ for x, y in dataset:
   # to the state dictionary.
   loss, state = train(state, rng, x, y)
   # To look at parameters, simply use the state dictionary.
-  assert state['/Model/bias'].shape == ()
+  assert state['/MyModel/bias'].shape == ()
   print('Loss:', float(loss))
 ```
 

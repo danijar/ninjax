@@ -9,7 +9,7 @@ import ninjax as nj
 Linear = functools.partial(nj.HaikuModule, hk.Linear)
 
 
-class Model(nj.Module):
+class MyModel(nj.Module):
 
   def __init__(self, size, lr=0.01, act=jax.nn.relu):
     self.size = size
@@ -41,23 +41,20 @@ class Model(nj.Module):
     return ((self(x) - y) ** 2).mean()
 
 
-model = Model(8)
-train = nj.pure(model.train)  # nj.jit(...), nj.pmap(...)
-main = jax.random.PRNGKey(0)
-
 # The complete state is stored in a flat dictionary. Ninjax automatically
 # applies scopes to the string keys based on the module names.
 state = {}
+model = MyModel(8)
+train = nj.pure(model.train)  # nj.jit(...), nj.pmap(...)
+main = jax.random.PRNGKey(0)
 
 # Let's train on some example data.
 dataset = [(jnp.ones((64, 32)), jnp.ones((64, 8)))] * 10
 for x, y in dataset:
   rng, main = jax.random.split(main)
-
   # Variables are automatically initialized on the first call. This adds them
   # to the state dictionary.
   loss, state = train(state, rng, x, y)
-
   # To look at parameters, simply use the state dictionary.
-  assert state['/Model/bias'].shape == ()
+  assert state['/MyModel/bias'].shape == ()
   print('Loss:', float(loss))
