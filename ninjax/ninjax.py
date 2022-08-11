@@ -136,12 +136,17 @@ def grad(fun, keys, has_aux=False):
   return wrapper
 
 
-def jit(fun):
+def jit(fun, static=None, **kwargs):
   """Compiles a pure function for fast execution. Only the first call of the
   function is allowed to create state entries."""
   if not getattr(fun, 'pure', False):
     raise ValueError('Use pure() before applying jit().')
-  compiled = jax.jit(functools.partial(fun, create=False))
+  static = static or ()
+  names = inspect.signature(fun).parameters.keys()
+  static_argnums = tuple([i for i, n in enumerate(names) if n in static])
+  compiled = jax.jit(
+      functools.partial(fun, create=False),
+      static_argnums=static_argnums, **kwargs)
   @functools.wraps(compiled)
   def wrapper(*args, **kwargs):
     if not wrapper.created:
