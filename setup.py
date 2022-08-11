@@ -2,15 +2,10 @@ import setuptools
 import pathlib
 
 
-DESCRIPTION = (
-    'Module system for JAX that offers full state access and allows to '
-    'easily combine modules from other libraries'
-)
-
 setuptools.setup(
     name='ninjax',
-    version='0.5.0',
-    description=DESCRIPTION,
+    version='0.6.0',
+    description='General Modules for JAX',
     url='http://github.com/danijar/ninjax',
     long_description=pathlib.Path('README.md').read_text(),
     long_description_content_type='text/markdown',

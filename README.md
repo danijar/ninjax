@@ -21,10 +21,10 @@ is fine for simple code bases. But it becomes a problem when there are mnay
 modules with their own training logic and optimizers.
 
 Ninjax solves this problem by giving each `nj.Module` full read and write
-access to its state, while remaining functional via `nj.run()`. This means
-modules can have `train()` functions to implement custom training logic, and
-call each other's train functions. Ninjax is intended to be used with one or
-more neural network libraries, such as [Haiku][haiku] and [Flax][flax].
+access to its state. This means modules can have `train()` functions to
+implement custom training logic, and call each other's train functions. Ninjax
+is intended to be used with one or more neural network libraries, such as
+[Haiku][haiku] and [Flax][flax].
 
 ## Installation
 
@@ -40,49 +40,65 @@ pip install ninjax
 ## Quickstart
 
 ```python3
+import functools
+
 import haiku as hk
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import ninjax as nj
 
+# Ninjax supports all Haiku and Flax modules and new libraries are easy to add.
+Linear = functools.partial(nj.HaikuModule, hk.Linear)
+
 
 class Model(nj.Module):
 
-  def __init__(self, size, act=jax.nn.relu):
+  def __init__(self, size, lr=0.01, act=jax.nn.relu):
     self.size = size
+    self.lr = lr
     self.act = act
-    self.h1 = nj.HaikuModule(hk.Linear, 128)
-    self.h2 = nj.HaikuModule(hk.Linear, 128)
-    self.h3 = nj.FlaxModule(nn.Linear, size)
+    # Define submodules upfront.
+    self.h1 = Linear(128)
+    self.h2 = Linear(128)
 
   def __call__(self, x):
     x = self.act(self.h1(x))
     x = self.act(self.h2(x))
-    x = self.h3(x)
+    # Define submodules inline.
+    x = self.get('h3', Linear, self.size, with_bias=False)(x)
+    # Create state entries of array values.
+    x += self.get('bias', jnp.array, 0.0)
     return x
 
   def train(self, x, y):
-    self(x)  # Ensure parameters are created.
-    state = self.get_state()
-    loss, grad = nj.grad(self.loss, state)(x, y)
-    state = jax.tree_map(lambda p, g: p - 0.01 * g, state, grad)
-    self.set_state(state)
-    # Get and put variables.
-    counter = nj.get('counter', jnp.zeros, (), jnp.int32)
-    self.put('counter', counter + 1)
+    # Compute gradient with respect to all parameters in this module.
+    loss, params, grad = nj.grad(self.loss, self)(x, y)
+    # Update the parameters with gradient descent.
+    state = jax.tree_util.tree_map(lambda p, g: p - self.lr * g, params, grad)
+    # Update multiple state entries of this module.
+    self.putm(state)
     return loss
 
   def loss(self, x, y):
     return ((self(x) - y) ** 2).mean()
 
 
-model = Model(8)
-main = jax.random.PRNGKey(0)
+# The complete state is stored in a flat dictionary. Ninjax automatically
+# applies scopes to the string keys based on the module names.
 state = {}
+model = Model(8)
+train = nj.pure(model.train)  # nj.jit(...), nj.pmap(...)
+main = jax.random.PRNGKey(0)
+
+# Let's train on some example data.
+dataset = [(jnp.ones((64, 32)), jnp.ones((64, 8)))] * 10
 for x, y in dataset:
   rng, main = jax.random.split(main)
-  loss, state = nj.run(model.train, state, rng, x, y)
+  # Variables are automatically initialized on the first call. This adds them
+  # to the state dictionary.
+  loss, state = train(state, rng, x, y)
+  # To look at parameters, simply use the state dictionary.
+  assert state['/Model/bias'].shape == ()
   print('Loss:', float(loss))
 ```
 
@@ -102,14 +118,14 @@ class Module(nj.Module):
     init = jax.nn.initializers.variance_scaling(1, 'fan_avg', 'uniform')
     weights = self.get('weights', init, nj.rng(), (64, 32))
     bias = self.get('bias', jnp.zeros, (32,), jnp.float32)
-    print(self.get_state())  # {'/path/to/module/weights': ..., '/path/to/module/bias': ...}
+    print(self.getm())  # {'/path/to/module/weights': ..., '/path/to/module/bias': ...}
     return x @ weights + bias
 ```
 
 ### How can I update state entries?
 
 To update the state entries of a module, use `self.put(name, value)` for
-individual entries of `self.set_state(mapping)` to update multiple values:
+individual entries of `self.putm(mapping)` to update multiple values:
 
 ```python3
 class Module(nj.Module):
@@ -118,10 +134,10 @@ class Module(nj.Module):
     counter = nj.get('counter', jnp.zeros, (), jnp.int32)
     self.put('counter', counter + 1)
     print(self.get('counter'))  # 1
-    state = self.get_state()
+    state = self.getm()
     state['counter'] += 1
-    self.set_state(state)
-    print(self.get_state()['counter'])  # 2
+    self.putm(state)
+    print(self.getm()['counter'])  # 2
     print(self.get('counter'))  # 2
 ```
 
@@ -146,13 +162,13 @@ state, use `nj.grad(fn, keys)`:
 class Module(nj.Module):
 
   def train(self, x, y):
-    params = self.get_state('.*')
+    params = self.getm('.*')
     loss, grads = nj.grad(self.loss, params.keys())(x, y)
     params = jax.tree_map(lambda p, g: p - 0.01 * g, params, grads)
-    self.set_state(params)
+    self.putm(params)
 ```
 
-The `self.get_state(filter='.*')` method optionally accepts a regex pattern to select
+The `self.getm(filter='.*')` method optionally accepts a regex pattern to select
 only a subset of the state dictionary. It also returns only state entries of
 the current module. To access the global state, use `nj.state()`.
 
@@ -241,7 +257,7 @@ class Module(nj.Module):
 
   def train(self, x, y):
     self.mlp(x)  # Ensure paramters are created.
-    metrics = self.opt(self.mlp.get_state('.*'), self.loss, x, y)
+    metrics = self.opt(self.mlp.getm('.*'), self.loss, x, y)
     return metrics  # {'loss': ..., 'grad_norm': ...}
 
   def loss(self, x, y):

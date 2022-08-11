@@ -26,9 +26,7 @@ class Module(nj.Module):
     return x
 
   def train(self, x, y):
-    self(x)  # Initialize weights.
-    params = self.mlp.get_state()
-    return self.opt(params, self.loss, x, y)
+    return self.opt(self.loss, [self.mlp, self.out], x, y)
 
   def loss(self, x, y):
     return ((self(x) - y) ** 2).mean()
@@ -39,9 +37,9 @@ def main():
   y = jnp.ones((16, 4), jnp.float32)
 
   model = Module(4)
-  call = jax.jit(functools.partial(nj.run, model))
-  train = jax.jit(functools.partial(nj.run, model.train))
-  loss = jax.jit(functools.partial(nj.run, model.loss))
+  call = jax.jit(nj.pure(model))
+  train = jax.jit(nj.pure(model.train))
+  loss = jax.jit(nj.pure(model.loss))
 
   state = {}
   main = jax.random.PRNGKey(0)

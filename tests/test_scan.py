@@ -8,36 +8,48 @@ class TestScan:
   def test_constants(self):
     nj.reset()
     def program():
-      def f(carry, x):
+      def body(carry, x):
         carry = carry + x
         return carry, carry
-      return nj.scan(f, 0, jnp.array([1, 2, 3, 4, 5]))
-    (carry, ys), _ = nj.run(program, {}, jax.random.PRNGKey(0))
+      return nj.scan(body, 0, jnp.array([1, 2, 3, 4, 5]))
+    (carry, ys), _ = nj.pure(program)({}, jax.random.PRNGKey(0))
     assert carry == 15
     assert list(ys) == [1, 3, 6, 10, 15]
 
-  def test_variables(self):
+  def test_read_state(self):
     nj.reset()
     v = nj.Variable(jnp.zeros, (), jnp.int32)
     def program():
-      def f(carry, x):
+      def body(carry, x):
+        y = x + v.read()
+        return carry + 1, y
+      return nj.scan(body, 0, jnp.array([1, 1, 1]), modify=False)
+    rng = jax.random.PRNGKey(0)
+    (carry, ys), _ = nj.pure(program)({}, rng)
+    assert carry == 3
+    assert list(ys) == [1, 1, 1]
+
+  def test_write_state(self):
+    nj.reset()
+    v = nj.Variable(jnp.zeros, (), jnp.int32)
+    def program():
+      def body(carry, x):
         y = x + v.read()
         v.write(y)
-        return y, carry + 1
-      return nj.scan(f, 0, jnp.array([1, 1, 1]))
+        return carry + 1, y
+      return nj.scan(body, 0, jnp.array([1, 1, 1]), modify=True)
     rng = jax.random.PRNGKey(0)
-    _, state = nj.run(v.read, {}, rng)  # Initialize variable.
-    (carry, ys), _ = nj.run(program, state, rng)
+    (carry, ys), _ = nj.pure(program)({}, rng)
     assert carry == 3
     assert list(ys) == [1, 2, 3]
 
   def test_rng(self):
     nj.reset()
     def program():
-      def f(carry, x):
+      def body(carry, x):
         return carry, nj.rng()
-      return nj.scan(f, 0, jnp.array([1, 1, 1]))[1]
-    keys, _ = nj.run(program, {}, jax.random.PRNGKey(0))
+      return nj.scan(body, 0, jnp.array([1, 1, 1]))[1]
+    keys, _ = nj.pure(program)({}, jax.random.PRNGKey(0))
     assert jnp.array(keys).shape == (3, 2)
     assert (keys[0] != keys[1]).all()
     assert (keys[0] != keys[2]).all()

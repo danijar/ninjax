@@ -9,34 +9,40 @@ class TestPmap:
 
   def test_plain_pmap(self):
     nj.reset()
-    inner = functools.partial(nj.run, lambda x: x ** 2)
-    run = jax.pmap(inner, 'devices')
+    inner = nj.pure(lambda x: x ** 2)
+    fun = jax.pmap(inner, 'devices')
     rng = jax.random.PRNGKey(0)[None]
     x = jnp.ones((1, 128))
-    assert run({}, rng, x)[0].shape == (1, 128)
-    assert run({}, rng, x)[0].shape == (1, 128)
+    assert fun({}, rng, x)[0].shape == (1, 128)
+    assert fun({}, rng, x)[0].shape == (1, 128)
 
   def test_ninjax_pmap(self):
     nj.reset()
-    inner = functools.partial(nj.run, lambda x: x ** 2)
-    run = nj.pmap(inner, 'devices')
-    rng = jax.random.PRNGKey(0)[None]
+    fun = nj.pmap(nj.pure(lambda x: x ** 2), 'devices')
+    rng = jnp.repeat(jax.random.PRNGKey(0)[None], 1, 0)
     x = jnp.ones((1, 128))
-    assert not hasattr(inner, '_initialized')
-    assert run({}, rng, x)[0].shape == (1, 128)
-    assert inner._initialized
-    assert run({}, rng, x)[0].shape == (1, 128)
-    assert inner._initialized
+    assert not fun.created
+    assert fun({}, rng, x)[0].shape == (1, 128)
+    assert fun.created
+    assert fun({}, rng, x)[0].shape == (1, 128)
+    assert fun.created
 
   def test_variables(self):
     nj.reset()
     v = nj.Variable(jnp.ones, (), jnp.int32)
-    read = nj.pmap(functools.partial(nj.run, v.read))
-    write = nj.pmap(functools.partial(nj.run, v.write))
-    state = {}
+    read = nj.pmap(nj.pure(v.read))
+    write = nj.pmap(nj.pure(v.write))
     rng = jax.random.PRNGKey(0)[None]
-    _, state = read(state, rng)
+    state = {}
+    value, state = read(state, rng)
+    assert value == jnp.array([1])
     assert state == {'/Variable/value': jnp.array([1])}
-    _, state = write(state, rng, jnp.array([42]))
-    assert nj.run(v.read, state, rng)[0] == jnp.array([42])
-    assert state == {'/Variable/value': jnp.array([42])}
+    value, state = write(state, rng, jnp.array([2]))
+    assert value == jnp.array([2])
+    assert state == {'/Variable/value': jnp.array([2])}
+    value, state = write(state, rng, jnp.array([3]))
+    assert value == jnp.array([3])
+    assert state == {'/Variable/value': jnp.array([3])}
+    value, state = read(state, rng)
+    assert value == jnp.array([3])
+    assert state == {'/Variable/value': jnp.array([3])}
