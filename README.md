@@ -21,10 +21,21 @@ simple code bases. But it becomes a problem when there are many modules with
 their own training logic and optimizers.
 
 Ninjax solves this problem by giving each `nj.Module` full read and write
-access to its state. This means modules can have `train()` functions to
+access to its state. This means modules can have train functions to
 implement custom training logic, and call each other's train functions. Ninjax
 is intended to be used with one or more neural network libraries, such as
 [Haiku][haiku] and [Flax][flax].
+
+The main differences to existing deep learning libraries are:
+
+- Ninjax does not need separate `apply()`/`init()` functions. Instead, the
+  first function call creates variables automatically.
+- Ninjax lets you access and update model parameters inside of impure
+  functions, so modules can handle their own optimizers and update logic.
+- Natural support for modules with multiple functions without need for
+  Flax's `setup()` function or Haiku's `hk.multi_transform()`.
+- Ninjax' flexible state handling makes it trivial to mix and match
+  modules from other deep learning libraries in your models.
 
 ## Installation
 
