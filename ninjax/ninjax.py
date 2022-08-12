@@ -46,6 +46,8 @@ def pure(fun, nested=False):
   state in and out. The result is a pure function that is composable with JAX
   transformation. The pure function can be used as follows:
   `out, state = fun(state, rng, *args, **kwargs)`."""
+  # TODO: Make rng a keyword argument to allow providing a default in
+  # pure/jit/pmap.
   def purified(
       state, rng, *args, create=True, modify=True, freeze=False, **kwargs):
     global CONTEXT
@@ -143,51 +145,67 @@ def jit(fun, static=None, **kwargs):
   if not getattr(fun, 'pure', False):
     raise ValueError('Use pure() before applying jit().')
   static = static or ()
-  compiled = jax.jit(
-      lambda sta, *a, **kw: fun(*a, **kw, **dict(sta), create=False),
-      static_argnums=[0], **kwargs)
-  @functools.wraps(compiled)
-  def wrapper(*args, **kwargs):
-    for name in static:
-      if name not in kwargs:
-        raise ValueError('Please pass all static arguments by keyword.')
-    if not wrapper.created:
-      wrapper.created = True
-      return fun(*args, create=True, **kwargs)
-    nosta = {k: v for k, v in kwargs.items() if k not in static}
-    sta = {k: v for k, v in kwargs.items() if k in static}
-    sta = tuple(sorted(sta.items()))
-    return compiled(sta, *args, **nosta)
-  wrapper.created = False
+
+  @bind(jax.jit, static_argnums=[0], **kwargs)
+  def init(statics, rng, *args, **kwargs):
+    # Return only state so JIT can remove dead code for fast initialization.
+    return fun({}, rng, *args, modify=False, **kwargs)[1]
+
+  @bind(jax.jit, static_argnums=[0], **kwargs)
+  def apply(statics, state, rng, *args, **kwargs):
+    return fun(state, rng, *args, create=False, **dict(statics), **kwargs)
+
+  @functools.wraps(fun)
+  def wrapper(state, rng, *args, **kwargs):
+    if any([name not in kwargs for name in static]):
+      raise ValueError('Please pass all static arguments by keyword.')
+    state = state.copy()
+    statics = tuple(sorted([(k, v) for k, v in kwargs.items() if k in static]))
+    kwargs = {k: v for k, v in kwargs.items() if k not in static}
+    if not hasattr(wrapper, 'keys'):
+      created = init(statics, rng, *args, **kwargs)
+      wrapper.keys = set(created.keys())
+      for key, value in created.items():
+        if key not in state:
+          state[key] = value
+    selected = {k: v for k, v in state.items() if k in wrapper.keys}
+    out, updated = apply(statics, selected, rng, *args, **kwargs)
+    return out, {**state, **updated}
   return wrapper
 
 
-def pmap(fun, axis_name=None, static=None, in_axes=0, out_axes=0, **kwargs):
+def pmap(fun, axis_name=None, static=None, **kwargs):
   """Compiles n pure function for fast execution across multiple devices. Only
   the first call of the function is allowed to create state entries."""
-  static = static or ()
   if not getattr(fun, 'pure', False):
-    raise ValueError('Use pure() before applying pmap().')
-  inner = lambda sta, *a, **kw: fun(*a, **kw, **dict(sta))
-  compiled = jax.pmap(
-      functools.partial(inner, create=False),
-      axis_name, in_axes=in_axes, out_axes=out_axes,
-      static_broadcasted_argnums=[0], **kwargs)
-  @functools.wraps(compiled)
-  def wrapper(*args, **kwargs):
-    for name in static:
-      if name not in kwargs:
-        raise ValueError('Please pass all static arguments by keyword.')
-    nosta = {k: v for k, v in kwargs.items() if k not in static}
-    sta = {k: v for k, v in kwargs.items() if k in static}
-    sta = tuple(sorted(sta.items()))
-    if not wrapper.created:
-      wrapper.created = True
-      return jax.vmap(
-          functools.partial(inner, sta, create=True),
-          in_axes, out_axes, axis_name)(*args, **nosta)
-    return compiled(sta, *args, **nosta)
-  wrapper.created = False
+    raise ValueError('Use pure() before applying jit().')
+  static = static or ()
+
+  @bind(jax.pmap, axis_name=axis_name, static_broadcasted_argnums=[0], **kwargs)
+  def init(statics, rng, *args, **kwargs):
+    # Return only state so JIT can remove dead code for fast initialization.
+    return fun({}, rng, *args, modify=False, **kwargs)[1]
+
+  @bind(jax.pmap, axis_name=axis_name, static_broadcasted_argnums=[0], **kwargs)
+  def apply(statics, state, rng, *args, **kwargs):
+    return fun(state, rng, *args, create=False, **dict(statics), **kwargs)
+
+  @functools.wraps(fun)
+  def wrapper(state, rng, *args, **kwargs):
+    if any([name not in kwargs for name in static]):
+      raise ValueError('Please pass all static arguments by keyword.')
+    state = state.copy()
+    statics = tuple(sorted([(k, v) for k, v in kwargs.items() if k in static]))
+    kwargs = {k: v for k, v in kwargs.items() if k not in static}
+    if not hasattr(wrapper, 'keys'):
+      created = init(statics, rng, *args, **kwargs)
+      wrapper.keys = set(created.keys())
+      for key, value in created.items():
+        if key not in state:
+          state[key] = value
+    selected = {k: v for k, v in state.items() if k in wrapper.keys}
+    out, updated = apply(statics, selected, rng, *args, **kwargs)
+    return out, {**state, **updated}
   return wrapper
 
 
