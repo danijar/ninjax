@@ -84,7 +84,25 @@ class TestGrad:
 
   def test_side_effect(self):
     nj.reset()
-    counter = nj.Variable(jnp.array, 0)
+    counter = nj.Variable(jnp.array, 0, name='counter')
+    w = nj.Variable(jnp.array, 0.5)
+    def program(x):
+      def forward(x):
+        counter.write(counter.read() + 1)
+        return x * w.read()
+      nj.grad(forward, [w])(x)
+      return counter.read()
+    rng = jax.random.PRNGKey(0)
+    fun = nj.pure(program)
+    state = {}
+    for index in range(1, 4):
+      value, state = fun(state, rng, jnp.array(2.0))
+      assert value == index
+      assert state['/counter/value'] == index
+
+  def test_side_effect_jit(self):
+    nj.reset()
+    counter = nj.Variable(jnp.array, 0, name='counter')
     w = nj.Variable(jnp.array, 0.5)
     def program(x):
       def forward(x):

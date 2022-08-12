@@ -73,3 +73,16 @@ class TestJit:
     assert state == {'/v1/value': 2, '/v2/value': 0, '/v3/value': 3}
     assert foo.keys == {'/v1/value', '/v2/value'}
     assert bar.keys == {'/v1/value', '/v3/value'}
+
+  def test_side_effect(self):
+    nj.reset()
+    counter = nj.Variable(jnp.array, 0)
+    def program(x):
+      counter.write(counter.read() + 1)
+      return counter.read()
+    rng = jax.random.PRNGKey(0)
+    fun = nj.jit(nj.pure(program))
+    state = {}
+    for index in range(1, 4):
+      value, state = fun(state, rng, jnp.array(2.0))
+      assert value == index

@@ -22,13 +22,26 @@ CONTEXT = [None]
 
 class Context:
 
-  def __init__(self, state, rng, create, modify, freeze, reserve):
-    self.state = state
+  def __init__(self, entries, rng, create, modify, freeze, reserve):
+    self.entries = entries
+    self.state = self.entries  # TODO
     self.rng = rng
     self.create = create  # Allow creating new state entries.
     self.modify = modify  # Apply modifications to existing state entries.
     self.freeze = freeze  # Disllow modifying existing state entries.
     self.reserve = reserve
+
+  def keys(self):
+    return self.entries.keys()
+
+  def update(self, entries):
+    self.entries.update(entries)
+
+  def __setitem__(self, key, value):
+    self.entries[key] = value
+
+  def __getitem__(self, key):
+    return self.entries[key]
 
 
 def context():
@@ -46,11 +59,20 @@ def pure(fun, nested=False):
   state in and out. The result is a pure function that is composable with JAX
   transformation. The pure function can be used as follows:
   `out, state = fun(state, rng, *args, **kwargs)`."""
-  # TODO: Make rng a keyword argument to allow providing a default in
-  # pure/jit/pmap.
   def purified(
-      state, rng, *args, create=True, modify=True, freeze=False, **kwargs):
+      state, rng, *args, create=None, modify=None, freeze=None, **kwargs):
     global CONTEXT
+    if CONTEXT[0]:
+      create = create if create is not None else context().create
+      modify = modify if modify is not None else context().modify
+      freeze = freeze if freeze is not None else context().freeze
+      assert context().create or not create, 'Parent context disabled create.'
+      assert context().modify or not modify, 'Parent context disabled modify.'
+      assert not context().freeze or freeze, 'Parent context enabled freeze.'
+    else:
+      create = create if create is not None else True
+      modify = modify if modify is not None else True
+      freeze = freeze if freeze is not None else False
     if not isinstance(state, dict):
       raise ValueError('Must provide a dict as state.')
     if CONTEXT[0] and (not nested):
@@ -113,24 +135,18 @@ def grad(fun, keys, has_aux=False):
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, *kwargs), {})
   fun = pure(fun, nested=True)
   def forward(x1, x2, rng, *args, **kwargs):
-    (y, aux), state = fun(
-        {**x1, **x2}, rng, *args, create=False, modify=True, **kwargs)
+    (y, aux), state = fun({**x1, **x2}, rng, *args, create=False, **kwargs)
     return y, (aux, state)
   backward = jax.value_and_grad(forward, has_aux=True)
   @functools.wraps(backward)
   def wrapper(*args, **kwargs):
-    ctx = context()
-    if ctx.create:
-      discarded, state = fun(
-          ctx.state, rng(), *args, create=True, modify=False, **kwargs)
-      jax.tree_util.tree_map(
-          lambda x: hasattr(x, 'delete') and x.delete(), discarded)
-      ctx.state.update(state)
+    prerun(fun, *args, **kwargs)
     assert all(isinstance(x, (str, Module)) for x in keys)
     strs = [x for x in keys if isinstance(x, str)]
     mods = [x for x in keys if isinstance(x, Module)]
     for mod in mods:
       strs += mod.getm()
+    ctx = context()
     x1 = {k: v for k, v in ctx.state.items() if k in strs}
     x2 = {k: v for k, v in ctx.state.items() if k not in strs}
     (y, (aux, state)), dx = backward(x1, x2, rng(), *args, **kwargs)
@@ -149,7 +165,8 @@ def jit(fun, static=None, **kwargs):
   @bind(jax.jit, static_argnums=[0], **kwargs)
   def init(statics, rng, *args, **kwargs):
     # Return only state so JIT can remove dead code for fast initialization.
-    return fun({}, rng, *args, modify=False, **kwargs)[1]
+    s = fun({}, rng, *args, modify=False, **kwargs)[1]
+    return s
 
   @bind(jax.jit, static_argnums=[0], **kwargs)
   def apply(statics, state, rng, *args, **kwargs):
@@ -213,15 +230,8 @@ def cond(pred, true_fun, false_fun, *operands):
   ctx = context()
   true_fun = pure(true_fun, nested=True)
   false_fun = pure(false_fun, nested=True)
-  if ctx.create:
-    discarded, state = true_fun(ctx.state, rng(), *operands, create=True, modify=False)
-    jax.tree_util.tree_map(
-        lambda x: hasattr(x, 'delete') and x.delete(), discarded)
-    ctx.state.update(state)
-    discarded, state = false_fun(ctx.state, rng(), *operands, create=True, modify=False)
-    jax.tree_util.tree_map(
-        lambda x: hasattr(x, 'delete') and x.delete(), discarded)
-    ctx.state.update(state)
+  prerun(true_fun, *operands)
+  prerun(false_fun, *operands)
   out, state = jax.lax.cond(
       pred,
       lambda state, rng1, rng2, *args: true_fun(state, rng1, *args),
@@ -234,12 +244,7 @@ def cond(pred, true_fun, false_fun, *operands):
 def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
   ctx = context()
   fun = pure(fun, nested=True)
-  if ctx.create:
-    first = jax.tree_util.tree_map(lambda x: x[0], xs)
-    discarded, state = fun(ctx.state, rng(), carry, first, create=True, modify=False)
-    jax.tree_util.tree_map(
-        lambda x: hasattr(x, 'delete') and x.delete(), discarded)
-    ctx.state.update(state)
+  prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
   length = len(jax.tree_util.tree_leaves(xs)[0])
   rngs = rng(length)
   if modify:
@@ -259,6 +264,17 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
       return carry, y
     carry, ys = jax.lax.scan(inner, carry, (xs, rngs), length, reverse, unroll)
   return carry, ys
+
+
+def prerun(fun, *args, **kwargs):
+  ctx = context()
+  if not ctx.create:
+    return
+  discarded, state = fun(ctx.state, rng(), *args, modify=False, **kwargs)
+  jax.tree_util.tree_map(
+      lambda x: hasattr(x, 'delete') and x.delete(), discarded)
+  ctx.state.update(state)
+
 
 
 ###############################################################################
