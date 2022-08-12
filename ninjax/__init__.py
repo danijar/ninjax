@@ -1,21 +1,23 @@
-# Context
+# Basics
+from .ninjax import Module
+from .ninjax import Variable
 from .ninjax import pure
-from .ninjax import state
 from .ninjax import rng
-from .ninjax import creating
 
-# Transformations
+# Transforms
 from .ninjax import grad
 from .ninjax import jit
 from .ninjax import pmap
+
+# Control Flow
 from .ninjax import cond
 from .ninjax import scan
 
-# Modules
+# Advanced
+from .ninjax import context
+from .ninjax import creating
 from .ninjax import reset
 from .ninjax import scope
-from .ninjax import Module
-from .ninjax import Variable
 
 # Integrations
 from .ninjax import HaikuModule

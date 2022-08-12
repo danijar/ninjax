@@ -9,49 +9,41 @@ import jax.numpy as jnp
 
 
 ###############################################################################
-# Context
+# State
 ###############################################################################
 
 
 # When running an impure function that accesses state, it will find the state
 # in this global variable. The pure() wrapper populates this global variable
-# with the provided state, calles the inner function, and the takes the
-# resulting state out of the global variable and returns it back to the user.
+# with the provided state, calls the inner function, and then the takes the
+# resulting state out of the global variable to return it back to the user.
 CONTEXT = [None]
 
 
-class Context:
+class Context(dict):
 
   def __init__(self, entries, rng, create, modify, freeze, reserve):
-    self.entries = entries
-    self.state = self.entries  # TODO
-    self.rng = rng
+    super().__init__(entries)
     self.create = create  # Allow creating new state entries.
     self.modify = modify  # Apply modifications to existing state entries.
     self.freeze = freeze  # Disllow modifying existing state entries.
+    self.rng = rng
     self.reserve = reserve
 
-  def keys(self):
-    return self.entries.keys()
-
   def update(self, entries):
-    self.entries.update(entries)
+    for key, value in dict(entries).items():
+      self[key] = value
 
   def __setitem__(self, key, value):
-    self.entries[key] = value
-
-  def __getitem__(self, key):
-    return self.entries[key]
-
-
-def context():
-  """Access and modify the global context from within an impure function. For
-  advanced users only. Prefer to use state() to access and modify the global
-  state and rng() to get the next RNG key."""
-  global CONTEXT
-  if CONTEXT[0] is None:
-    raise RuntimeError('Wrap impure functions in pure() before running them.')
-  return CONTEXT[0]
+    if self.freeze:
+      raise RuntimeError(
+          'Cannot modify state entries here. If you want to modify '
+          'state inside of scan() set modify=True.')
+    if not self.modify and key in self:
+      return  # Do not overwrite existing entries.
+    if not self.create and key not in self:
+      raise RuntimeError('Can only create state entries during first call.')
+    super().__setitem__(key, value)
 
 
 def pure(fun, nested=False):
@@ -63,12 +55,12 @@ def pure(fun, nested=False):
       state, rng, *args, create=None, modify=None, freeze=None, **kwargs):
     global CONTEXT
     if CONTEXT[0]:
-      create = create if create is not None else context().create
-      modify = modify if modify is not None else context().modify
-      freeze = freeze if freeze is not None else context().freeze
-      assert context().create or not create, 'Parent context disabled create.'
-      assert context().modify or not modify, 'Parent context disabled modify.'
-      assert not context().freeze or freeze, 'Parent context enabled freeze.'
+      create = create if create is not None else CONTEXT[0].create
+      modify = modify if modify is not None else CONTEXT[0].modify
+      freeze = freeze if freeze is not None else CONTEXT[0].freeze
+      assert CONTEXT[0].create or not create, 'Parent context disabled create.'
+      assert CONTEXT[0].modify or not modify, 'Parent context disabled modify.'
+      assert not CONTEXT[0].freeze or freeze, 'Parent context enabled freeze.'
     else:
       create = create if create is not None else True
       modify = modify if modify is not None else True
@@ -81,7 +73,7 @@ def pure(fun, nested=False):
     try:
       CONTEXT[0] = Context(state.copy(), rng, create, modify, freeze, [])
       out = fun(*args, **kwargs)
-      state = CONTEXT[0].state
+      state = dict(CONTEXT[0])
       return out, state
     finally:
       CONTEXT[0] = before
@@ -89,11 +81,14 @@ def pure(fun, nested=False):
   return purified
 
 
-def state():
-  """Access or modify the global state dictionary."""
-  # TODO: Wrap state dictionary with guards for context().create and
-  # context().modify.
-  return context().state
+def context():
+  """Access and modify the global context from within an impure function. For
+  advanced users only. Prefer to use module methods to access and modify state
+  and rng() to get the next RNG key."""
+  global CONTEXT
+  if CONTEXT[0] is None:
+    raise RuntimeError('Wrap impure functions in pure() before running them.')
+  return CONTEXT[0]
 
 
 def rng(amount=None, reserve=16):
@@ -112,9 +107,9 @@ def rng(amount=None, reserve=16):
 
 
 def creating():
-  """Boolean indicating whether the program is currently allowed to create
-  state entries. Can use used for initialization logic that should be excluded
-  from compiled functions."""
+  """Indicates whether the program is currently allowed to create state
+  entries. Can use used for initialization logic that should be excluded from
+  compiled functions."""
   return context().create
 
 
@@ -146,11 +141,10 @@ def grad(fun, keys, has_aux=False):
     mods = [x for x in keys if isinstance(x, Module)]
     for mod in mods:
       strs += mod.getm()
-    ctx = context()
-    x1 = {k: v for k, v in ctx.state.items() if k in strs}
-    x2 = {k: v for k, v in ctx.state.items() if k not in strs}
+    x1 = {k: v for k, v in context().items() if k in strs}
+    x2 = {k: v for k, v in context().items() if k not in strs}
     (y, (aux, state)), dx = backward(x1, x2, rng(), *args, **kwargs)
-    ctx.state.update(state)
+    context().update(state)
     return (y, x1, dx, aux) if has_aux else (y, x1, dx)
   return wrapper
 
@@ -227,7 +221,6 @@ def pmap(fun, axis_name=None, static=None, **kwargs):
 
 
 def cond(pred, true_fun, false_fun, *operands):
-  ctx = context()
   true_fun = pure(true_fun, nested=True)
   false_fun = pure(false_fun, nested=True)
   prerun(true_fun, *operands)
@@ -236,13 +229,12 @@ def cond(pred, true_fun, false_fun, *operands):
       pred,
       lambda state, rng1, rng2, *args: true_fun(state, rng1, *args),
       lambda state, rng1, rng2, *args: false_fun(state, rng2, *args),
-      ctx.state, *rng(2), *operands)
-  ctx.state.update(state)
+      dict(context()), *rng(2), *operands)
+  context().update(state)
   return out
 
 
 def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
-  ctx = context()
   fun = pure(fun, nested=True)
   prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
   length = len(jax.tree_util.tree_leaves(xs)[0])
@@ -254,26 +246,25 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
       (carry, y), state = fun(state, rng, carry, x, create=False)
       return (carry, state), y
     (carry, state), ys = jax.lax.scan(
-        inner, (carry, ctx.state), (xs, rngs), length, reverse, unroll)
-    ctx.state.update(state)
+        inner, (carry, dict(context())), (xs, rngs), length, reverse, unroll)
+    context().update(state)
   else:
     def inner(carry, x):
       x, rng = x
       (carry, y), state = fun(
-          ctx.state, rng, carry, x, create=False, freeze=True)
+          dict(context()), rng, carry, x, create=False, freeze=True)
       return carry, y
     carry, ys = jax.lax.scan(inner, carry, (xs, rngs), length, reverse, unroll)
   return carry, ys
 
 
 def prerun(fun, *args, **kwargs):
-  ctx = context()
-  if not ctx.create:
+  if not context().create:
     return
-  discarded, state = fun(ctx.state, rng(), *args, modify=False, **kwargs)
+  discarded, state = fun(dict(context()), rng(), *args, modify=False, **kwargs)
   jax.tree_util.tree_map(
       lambda x: hasattr(x, 'delete') and x.delete(), discarded)
-  ctx.state.update(state)
+  context().update(state)
 
 
 
@@ -378,19 +369,18 @@ class Module(object, metaclass=ModuleMeta):
 
   def get(self, name, *args, **kwargs):
     """Retrieve or create a state entry that belongs to this module."""
-    state_ = state()
     path = self.path + '/' + name
     if name in self._submodules:
       return self._submodules[name]
-    if path in state_:
-      return state_[path]
+    if path in context():
+      return context()[path]
     ctor, *args = args
     if 'name' in inspect.signature(ctor).parameters:
       kwargs['name'] = name
     value = ctor(*args, **kwargs)
     flat, _ = jax.tree_util.tree_flatten(value)
     if all(isinstance(x, jnp.ndarray) for x in flat):
-      state_[path] = value
+      context()[path] = value
     else:
       self._submodules[name] = value
     return value
@@ -402,11 +392,10 @@ class Module(object, metaclass=ModuleMeta):
 
   def getm(self, pattern=r'.*', allow_empty=False):
     """Read the state entries of this module, optionally filtered by regex."""
-    state_ = state()
     pattern = re.compile(pattern)
     prefix = self.path + '/'
     results = {}
-    for key, value in state_.items():
+    for key, value in context().items():
       if not key.startswith(prefix):
         continue
       if pattern.match(key[len(prefix):]):
@@ -421,19 +410,7 @@ class Module(object, metaclass=ModuleMeta):
     for key in mapping:
       if not key.startswith(prefix):
         raise KeyError(f'Key {key} does not belong to module {self.path}.')
-    ctx = context()
-    if ctx.freeze:
-      raise RuntimeError(
-          'Cannot modify state entries here. If you want to modify '
-          'state inside of scan() set modify=True.')
-    if not ctx.modify:
-      mapping = {k: v for k, v in mapping.items() if k not in ctx.state}
-    if not ctx.create:
-      for key, value in mapping.items():
-        if key not in ctx.state:
-          raise RuntimeError(
-              f'Can only create state entries during first call ({key}).')
-    ctx.state.update(mapping)
+    context().update(mapping)
 
 
 class Variable(Module):
@@ -489,5 +466,5 @@ class OptaxModule(Module):
     optstate = self.get('state', self.opt.init, params)
     updates, optstate = self.opt.update(grads, optstate)
     self.put('state', optstate)
-    state().update(optax.apply_updates(params, updates))
+    context().update(optax.apply_updates(params, updates))
     return {'loss': loss.mean(), 'grad_norm': optax.global_norm(grads)}
