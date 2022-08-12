@@ -24,7 +24,7 @@ html_theme_options = {
     'repository_url': 'https://github.com/danijar/ninjax',
     'use_repository_button': True,
     'use_issues_button': False,
-    'prev_next_buttons_location': None,
+    # 'prev_next_buttons_location': None,
     'show_navbar_depth': 1,
 }
 
@@ -43,3 +43,4 @@ html_theme = 'sphinx_book_theme'
 html_static_path = ['_static']
 html_css_files = ['style.css']
 html_title = 'Ninjax'
+html_logo = '_static/logo.png'
