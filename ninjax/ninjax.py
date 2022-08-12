@@ -119,8 +119,10 @@ def grad(fun, keys, has_aux=False):
   def wrapper(*args, **kwargs):
     ctx = context()
     if ctx.create:
-      _, state = fun(
+      discarded, state = fun(
           ctx.state, rng(), *args, create=True, modify=False, **kwargs)
+      jax.tree_util.tree_map(
+          lambda x: hasattr(x, 'delete') and x.delete(), discarded)
       ctx.state.update(state)
     assert all(isinstance(x, (str, Module)) for x in keys)
     strs = [x for x in keys if isinstance(x, str)]
@@ -194,9 +196,13 @@ def cond(pred, true_fun, false_fun, *operands):
   true_fun = pure(true_fun, nested=True)
   false_fun = pure(false_fun, nested=True)
   if ctx.create:
-    _, state = true_fun(ctx.state, rng(), *operands, create=True, modify=False)
+    discarded, state = true_fun(ctx.state, rng(), *operands, create=True, modify=False)
+    jax.tree_util.tree_map(
+        lambda x: hasattr(x, 'delete') and x.delete(), discarded)
     ctx.state.update(state)
-    _, state = false_fun(ctx.state, rng(), *operands, create=True, modify=False)
+    discarded, state = false_fun(ctx.state, rng(), *operands, create=True, modify=False)
+    jax.tree_util.tree_map(
+        lambda x: hasattr(x, 'delete') and x.delete(), discarded)
     ctx.state.update(state)
   out, state = jax.lax.cond(
       pred,
@@ -212,7 +218,9 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
   fun = pure(fun, nested=True)
   if ctx.create:
     first = jax.tree_util.tree_map(lambda x: x[0], xs)
-    _, state = fun(ctx.state, rng(), carry, first, create=True, modify=False)
+    discarded, state = fun(ctx.state, rng(), carry, first, create=True, modify=False)
+    jax.tree_util.tree_map(
+        lambda x: hasattr(x, 'delete') and x.delete(), discarded)
     ctx.state.update(state)
   length = len(jax.tree_util.tree_leaves(xs)[0])
   rngs = rng(length)
