@@ -1,69 +1,123 @@
 .. currentmodule:: nj
 
-.. raw:: html
+.. .. raw:: html
 
-  <h1>Ninjax API</h1>
+..   <h1>Ninjax API</h1>
 
-General Modules for JAX
+.. General Modules for JAX
 
 
 Basics
+======
+
+.. .. autosummary::
+..    Module
+..    Variable
+..    pure
+..    rng
+
+Module
 ------
 
-.. autosummary::
-   pure
-   rng
-   Module
-   Variable
+.. autoclass:: Module
+
+
+Variable
+--------
+
+.. autoclass:: Variable
+
+pure
+----
 
 .. autofunction:: pure
+
+rng
+---
+
 .. autofunction:: rng
-.. autoclass:: Module
-.. autoclass:: Variable
 
 
 Transforms
-----------
+==========
 
-.. autosummary::
-   grad
-   jit
-   pmap
+.. .. autosummary::
+..    grad
+..    jit
+..    pmap
+
+grad
+----
 
 .. autofunction:: grad
+
+jit
+---
+
 .. autofunction:: jit
+
+pmap
+----
+
 .. autofunction:: pmap
 
 
 Control Flow
-------------
+============
 
-.. autosummary::
-   cond
-   scan
+.. .. autosummary::
+..    cond
+..    scan
+
+cond
+----
 
 .. autofunction:: cond
+
+
+scan
+----
+
 .. autofunction:: scan
 
 
 Advanced
---------
+========
 
-.. autosummary::
-   state
-   creating
+.. .. autosummary::
+..    state
+..    creating
+
+state
+-----
 
 .. autofunction:: state
+
+
+creating
+--------
+
 .. autofunction:: creating
 
 Integrations
-------------
+============
 
-.. autosummary::
-   HaikuModule
-   FlaxModule
-   OptaxModule
+.. .. autosummary::
+..    HaikuModule
+..    FlaxModule
+..    OptaxModule
+
+HaikuModule
+-----------
 
 .. autoclass:: HaikuModule
+
+FlaxModule
+----------
+
 .. autoclass:: FlaxModule
+
+OptaxModule
+-----------
+
 .. autoclass:: OptaxModule

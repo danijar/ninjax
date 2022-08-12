@@ -1,6 +1,6 @@
-import sys, os, mock
+import sys, os, unittest.mock
 for name in ['jax', 'jax.numpy', 'haiku', 'flax', 'optax']:
-  sys.modules[name] = mock.Mock()
+  sys.modules[name] = unittest.mock.MagicMock()
 sys.path.insert(0, os.path.abspath('../ninjax'))
 import ninjax as nj
 sys.modules['nj'] = nj
@@ -14,9 +14,19 @@ master_doc = 'index'
 extensions = [
     'sphinx.ext.autosummary',
     'sphinx.ext.viewcode',
+    'sphinx.ext.autosectionlabel',
+    'sphinx_design',
 ]
 
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+
+html_theme_options = {
+    'repository_url': 'https://github.com/danijar/ninjax',
+    'use_repository_button': True,
+    'use_issues_button': False,
+    'prev_next_buttons_location': None,
+    'show_navbar_depth': 1,
+}
 
 autodoc_default_options = {
     'member-order': 'bysource',
@@ -29,4 +39,7 @@ suppress_warnings = [
     'toc.circular',
 ]
 
-html_theme = 'sphinx_rtd_theme'
+html_theme = 'sphinx_book_theme'
+html_static_path = ['_static']
+html_css_files = ['style.css']
+html_title = 'Ninjax'
