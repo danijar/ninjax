@@ -22,11 +22,11 @@ CONTEXT = [None]
 
 class Context(dict):
 
-  def __init__(self, entries, rng, create, modify, freeze, reserve):
+  def __init__(self, entries, rng, create, modify, ignore, reserve):
     super().__init__(entries)
     self.create = create  # Allow creating new state entries.
-    self.modify = modify  # Apply modifications to existing state entries.
-    self.freeze = freeze  # Disllow modifying existing state entries.
+    self.modify = modify  # Allow modifying existing state entries.
+    self.ignore = ignore  # Ignore modifications to existing state entries.
     self.rng = rng
     self.reserve = reserve
 
@@ -35,11 +35,11 @@ class Context(dict):
       self[key] = value
 
   def __setitem__(self, key, value):
-    if self.freeze:
+    if not self.modify:
       raise RuntimeError(
           'Cannot modify state entries here. If you want to modify '
           'state inside of scan() set modify=True.')
-    if not self.modify and key in self:
+    if self.ignore and key in self:
       return  # Do not overwrite existing entries.
     if not self.create and key not in self:
       raise RuntimeError('Can only create state entries during first call.')
@@ -52,26 +52,26 @@ def pure(fun, nested=False):
   transformation. The pure function can be used as follows:
   `out, state = fun(state, rng, *args, **kwargs)`."""
   def purified(
-      state, rng, *args, create=None, modify=None, freeze=None, **kwargs):
+      state, rng, *args, create=None, modify=None, ignore=None, **kwargs):
     global CONTEXT
     if CONTEXT[0]:
       create = create if create is not None else CONTEXT[0].create
       modify = modify if modify is not None else CONTEXT[0].modify
-      freeze = freeze if freeze is not None else CONTEXT[0].freeze
+      ignore = ignore if ignore is not None else CONTEXT[0].ignore
       assert CONTEXT[0].create or not create, 'Parent context disabled create.'
       assert CONTEXT[0].modify or not modify, 'Parent context disabled modify.'
-      assert not CONTEXT[0].freeze or freeze, 'Parent context enabled freeze.'
+      assert not CONTEXT[0].ignore or ignore, 'Parent context enabled ignore.'
     else:
       create = create if create is not None else True
       modify = modify if modify is not None else True
-      freeze = freeze if freeze is not None else False
+      ignore = ignore if ignore is not None else False
     if not isinstance(state, dict):
       raise ValueError('Must provide a dict as state.')
     if CONTEXT[0] and (not nested):
       raise RuntimeError('If you want to nest run() calls, use nested=True.')
     before = CONTEXT[0]
     try:
-      CONTEXT[0] = Context(state.copy(), rng, create, modify, freeze, [])
+      CONTEXT[0] = Context(state.copy(), rng, create, modify, ignore, [])
       out = fun(*args, **kwargs)
       state = dict(CONTEXT[0])
       return out, state
@@ -159,7 +159,7 @@ def jit(fun, static=None, **kwargs):
   @bind(jax.jit, static_argnums=[0], **kwargs)
   def init(statics, rng, *args, **kwargs):
     # Return only state so JIT can remove dead code for fast initialization.
-    s = fun({}, rng, *args, modify=False, **kwargs)[1]
+    s = fun({}, rng, *args, ignore=True, **kwargs)[1]
     return s
 
   @bind(jax.jit, static_argnums=[0], **kwargs)
@@ -195,7 +195,7 @@ def pmap(fun, axis_name=None, static=None, **kwargs):
   @bind(jax.pmap, axis_name=axis_name, static_broadcasted_argnums=[0], **kwargs)
   def init(statics, rng, *args, **kwargs):
     # Return only state so JIT can remove dead code for fast initialization.
-    return fun({}, rng, *args, modify=False, **kwargs)[1]
+    return fun({}, rng, *args, ignore=True, **kwargs)[1]
 
   @bind(jax.pmap, axis_name=axis_name, static_broadcasted_argnums=[0], **kwargs)
   def apply(statics, state, rng, *args, **kwargs):
@@ -252,7 +252,7 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
     def inner(carry, x):
       x, rng = x
       (carry, y), state = fun(
-          dict(context()), rng, carry, x, create=False, freeze=True)
+          dict(context()), rng, carry, x, create=False, modify=False)
       return carry, y
     carry, ys = jax.lax.scan(inner, carry, (xs, rngs), length, reverse, unroll)
   return carry, ys
@@ -261,7 +261,7 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
 def prerun(fun, *args, **kwargs):
   if not context().create:
     return
-  discarded, state = fun(dict(context()), rng(), *args, modify=False, **kwargs)
+  discarded, state = fun(dict(context()), rng(), *args, ignore=True, **kwargs)
   jax.tree_util.tree_map(
       lambda x: hasattr(x, 'delete') and x.delete(), discarded)
   context().update(state)
