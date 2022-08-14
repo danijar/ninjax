@@ -91,6 +91,7 @@ def context():
   return CONTEXT[0]
 
 
+@jax.named_scope('rng')
 def rng(amount=None, reserve=16):
   """Split the global RNG key and return a new local key."""
   ctx = context()
@@ -118,6 +119,7 @@ def creating():
 ###############################################################################
 
 
+@jax.named_scope('grad')
 def grad(fun, keys, has_aux=False):
   """Compute the gradient of an impure function with respect to the specified
   state entries or modules. The transformed function returns a tuple containing
@@ -135,7 +137,7 @@ def grad(fun, keys, has_aux=False):
   backward = jax.value_and_grad(forward, has_aux=True)
   @functools.wraps(backward)
   def wrapper(*args, **kwargs):
-    prerun(fun, *args, **kwargs)
+    _prerun(fun, *args, **kwargs)
     assert all(isinstance(x, (str, Module)) for x in keys)
     strs = [x for x in keys if isinstance(x, str)]
     mods = [x for x in keys if isinstance(x, Module)]
@@ -220,11 +222,12 @@ def pmap(fun, axis_name=None, static=None, **kwargs):
   return wrapper
 
 
+@jax.named_scope('cond')
 def cond(pred, true_fun, false_fun, *operands):
   true_fun = pure(true_fun, nested=True)
   false_fun = pure(false_fun, nested=True)
-  prerun(true_fun, *operands)
-  prerun(false_fun, *operands)
+  _prerun(true_fun, *operands)
+  _prerun(false_fun, *operands)
   out, state = jax.lax.cond(
       pred,
       lambda state, rng1, rng2, *args: true_fun(state, rng1, *args),
@@ -234,9 +237,10 @@ def cond(pred, true_fun, false_fun, *operands):
   return out
 
 
+@jax.named_scope('scan')
 def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
   fun = pure(fun, nested=True)
-  prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
+  _prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
   length = len(jax.tree_util.tree_leaves(xs)[0])
   rngs = rng(length)
   if modify:
@@ -258,7 +262,8 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
   return carry, ys
 
 
-def prerun(fun, *args, **kwargs):
+@jax.named_scope('_prerun')
+def _prerun(fun, *args, **kwargs):
   if not context().create:
     return
   discarded, state = fun(dict(context()), rng(), *args, ignore=True, **kwargs)
@@ -350,7 +355,8 @@ def _scope_method(method):
   @functools.wraps(method)
   def wrapper(self, *args, **kwargs):
     with scope(self._path, absolute=True):
-      return method(self, *args, **kwargs)
+      with jax.named_scope(self._path.split('/')[-1]):
+        return method(self, *args, **kwargs)
   return wrapper
 
 
