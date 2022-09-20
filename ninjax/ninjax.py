@@ -161,7 +161,7 @@ def jit(fun, static=None, **kwargs):
   @bind(jax.jit, static_argnums=[0], **kwargs)
   def init(statics, rng, *args, **kwargs):
     # Return only state so JIT can remove dead code for fast initialization.
-    s = fun({}, rng, *args, ignore=True, **kwargs)[1]
+    s = fun({}, rng, *args, ignore=True, **dict(statics), **kwargs)[1]
     return s
 
   @bind(jax.jit, static_argnums=[0], **kwargs)
@@ -197,7 +197,7 @@ def pmap(fun, axis_name=None, static=None, **kwargs):
   @bind(jax.pmap, axis_name=axis_name, static_broadcasted_argnums=[0], **kwargs)
   def init(statics, rng, *args, **kwargs):
     # Return only state so JIT can remove dead code for fast initialization.
-    return fun({}, rng, *args, ignore=True, **kwargs)[1]
+    return fun({}, rng, *args, ignore=True, **dict(statics), **kwargs)[1]
 
   @bind(jax.pmap, axis_name=axis_name, static_broadcasted_argnums=[0], **kwargs)
   def apply(statics, state, rng, *args, **kwargs):

@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath('../ninjax'))
 import ninjax as nj
 sys.modules['nj'] = nj
 
-project = 'Ninjax'
+project = 'Ninjax Docs'
 copyright = '2022, Danijar Hafner'
 author = 'Danijar Hafner'
 
