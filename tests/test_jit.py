@@ -1,5 +1,3 @@
-import functools
-
 import jax as jax
 import jax.numpy as jnp
 import ninjax as nj
@@ -8,7 +6,6 @@ import ninjax as nj
 class TestJit:
 
   def test_constants(self):
-    nj.reset()
     fun = nj.jit(nj.pure(lambda: jnp.array(42)))
     assert not hasattr(fun, 'keys')
     assert fun({}, jax.random.PRNGKey(0))[0] == 42
@@ -17,8 +14,7 @@ class TestJit:
     assert fun.keys == set()
 
   def test_variables(self):
-    nj.reset()
-    v = nj.Variable(jnp.ones, (), jnp.int32)
+    v = nj.Variable(jnp.ones, (), jnp.int32, name='v')
     read = nj.jit(nj.pure(v.read))
     write = nj.jit(nj.pure(v.write))
     state = {}
@@ -26,17 +22,16 @@ class TestJit:
     assert not hasattr(read, 'keys')
     assert not hasattr(write, 'keys')
     state = read(state, rng)[1]
-    assert read.keys == {'/Variable/value'}
-    assert state == {'/Variable/value': 1}
+    assert read.keys == {'/v/value'}
+    assert state == {'/v/value': 1}
     state = write(state, rng, 42)[1]
-    assert write.keys == {'/Variable/value'}
-    assert state == {'/Variable/value': 42}
+    assert write.keys == {'/v/value'}
+    assert state == {'/v/value': 42}
     value = read(state, rng)[0]
     assert value == 42
-    assert state == {'/Variable/value': 42}
+    assert state == {'/v/value': 42}
 
   def test_statics(self):
-    nj.reset()
     def program(x, mode='train'):
       return x if mode == 'train' else 2 * x
     fun = nj.jit(nj.pure(program), static=['mode'])
@@ -47,7 +42,6 @@ class TestJit:
     assert fun({}, rng, jnp.array(1), mode='eval')[0] == 2
 
   def test_overlap(self):
-    nj.reset()
     v1 = nj.Variable(jnp.zeros, (), jnp.int32, name='v1')
     v2 = nj.Variable(jnp.zeros, (), jnp.int32, name='v2')
     v3 = nj.Variable(jnp.zeros, (), jnp.int32, name='v3')
@@ -75,8 +69,7 @@ class TestJit:
     assert bar.keys == {'/v1/value', '/v3/value'}
 
   def test_side_effect(self):
-    nj.reset()
-    counter = nj.Variable(jnp.array, 0)
+    counter = nj.Variable(jnp.array, 0, name='counter')
     def program(x):
       counter.write(counter.read() + 1)
       return counter.read()

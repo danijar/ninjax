@@ -272,7 +272,6 @@ def _prerun(fun, *args, **kwargs):
   context().update(state)
 
 
-
 ###############################################################################
 # Modules
 ###############################################################################
@@ -281,34 +280,23 @@ def _prerun(fun, *args, **kwargs):
 SCOPE = ['']
 
 
-def reset():
-  """Clean up previously used scope names to provide a clean starting point for
-  unit tests."""
-  ModuleMeta.COUNTERS.clear()
-
-
 @contextlib.contextmanager
-def scope(scope, absolute=False):
+def scope(name, absolute=False):
   """Enter a relative or absolute name scope. Name scopes are used to make
-  variable names unique."""
+  names of state entries unique."""
   global SCOPE
   if SCOPE[0] is None:
     raise RuntimeError('Run stateful functions with run().')
-  previous = SCOPE[0]
-  if absolute:
-    SCOPE[0] = scope
-  else:
-    SCOPE[0] += '/' + scope
+  outside = SCOPE[0]
+  SCOPE[0] = name if absolute else outside + '/' + name
   yield SCOPE[0]
-  SCOPE[0] = previous
+  SCOPE[0] = outside
 
 
 class ModuleMeta(type):
 
   """Meta class that creates a unique path for each module instance and wraps
   the methods and properties of the module to enter the name scope."""
-
-  COUNTERS = {}
 
   def __new__(mcs, name, bases, clsdict):
     """This runs once per user module class definition. It wraps the methods of
@@ -335,16 +323,15 @@ class ModuleMeta(type):
   def __call__(cls, *args, name=None, **kwargs):
     """This runs once per use module instance creation. It derives a unique
     name and path for the module instance."""
+    if not isinstance(name, str):
+      raise KeyError(
+          "Please provide a module name via Module(..., name='example').")
+    if not re.match(r'[A-Za-z0-9_]+', name):
+      raise KeyError(
+          'Only letters, numbers, and underscores are allowed in scope names.')
     obj = cls.__new__(cls)
-    name = name or cls.__name__
-    global SCOPE
-    path = SCOPE[0] + '/' + name
-    if path in cls.COUNTERS:
-      cls.COUNTERS[path] += 1
-      path += str(cls.COUNTERS[path])
-    else:
-      cls.COUNTERS[path] = 1
-    obj._path = path
+    with scope(name) as path:
+      obj._path = path
     obj._submodules = {}
     init = _scope_method(cls.__init__)
     init(obj, *args, **kwargs)

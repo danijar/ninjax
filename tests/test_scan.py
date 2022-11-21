@@ -6,7 +6,6 @@ import ninjax as nj
 class TestScan:
 
   def test_constants(self):
-    nj.reset()
     def program():
       def body(carry, x):
         carry = carry + x
@@ -17,8 +16,7 @@ class TestScan:
     assert list(ys) == [1, 3, 6, 10, 15]
 
   def test_read_state(self):
-    nj.reset()
-    v = nj.Variable(jnp.zeros, (), jnp.int32)
+    v = nj.Variable(jnp.zeros, (), jnp.int32, name='v')
     def program():
       def body(carry, x):
         y = x + v.read()
@@ -30,8 +28,7 @@ class TestScan:
     assert list(ys) == [1, 1, 1]
 
   def test_write_state(self):
-    nj.reset()
-    v = nj.Variable(jnp.zeros, (), jnp.int32)
+    v = nj.Variable(jnp.zeros, (), jnp.int32, name='v')
     def program():
       def body(carry, x):
         y = x + v.read()
@@ -44,7 +41,6 @@ class TestScan:
     assert list(ys) == [1, 2, 3]
 
   def test_rng(self):
-    nj.reset()
     def program():
       def body(carry, x):
         return carry, nj.rng()

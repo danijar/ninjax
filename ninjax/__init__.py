@@ -16,7 +16,6 @@ from .ninjax import scan
 # Advanced
 from .ninjax import context
 from .ninjax import creating
-from .ninjax import reset
 from .ninjax import scope
 
 # Integrations

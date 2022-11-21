@@ -6,7 +6,6 @@ import ninjax as nj
 class TestCond:
 
   def test_basic(self):
-    nj.reset()
     def program(x):
       return nj.cond(x, lambda: 12, lambda: 42)
     rng = jax.random.PRNGKey(0)
@@ -14,9 +13,8 @@ class TestCond:
     assert nj.pure(program)({}, rng, False)[0] == 42
 
   def test_state(self):
-    nj.reset()
-    v = nj.Variable(jnp.ones, (), jnp.int32)
-    w = nj.Variable(jnp.ones, (), jnp.int32)
+    v = nj.Variable(jnp.ones, (), jnp.int32, name='v')
+    w = nj.Variable(jnp.ones, (), jnp.int32, name='w')
     def program(x):
       def true_fn():
         return v.read() + w.read()
@@ -34,7 +32,6 @@ class TestCond:
     assert out == 43
 
   def test_branch_rngs(self):
-    nj.reset()
     def program(x):
       return nj.cond(x, nj.rng, nj.rng)
     rng = jax.random.PRNGKey(0)

@@ -69,8 +69,8 @@ class MyModel(nj.Module):
     self.lr = lr
     self.act = act
     # Define submodules upfront.
-    self.h1 = Linear(128)
-    self.h2 = Linear(128)
+    self.h1 = Linear(128, name='h1')
+    self.h2 = Linear(128, name='h2')
 
   def __call__(self, x):
     x = self.act(self.h1(x))
@@ -97,7 +97,7 @@ class MyModel(nj.Module):
 # The complete state is stored in a flat dictionary. Ninjax automatically
 # applies scopes to the string keys based on the module names.
 state = {}
-model = MyModel(8)
+model = MyModel(8, name='model')
 train = nj.pure(model.train)  # nj.jit(...), nj.pmap(...)
 main = jax.random.PRNGKey(0)
 
@@ -109,7 +109,7 @@ for x, y in dataset:
   # to the state dictionary.
   loss, state = train(state, rng, x, y)
   # To look at parameters, simply use the state dictionary.
-  assert state['/MyModel/bias'].shape == ()
+  assert state['/model/bias'].shape == ()
   print('Loss:', float(loss))
 ```
 

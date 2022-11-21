@@ -15,9 +15,9 @@ Adam = functools.partial(nj.OptaxModule, optax.adam)
 class Module(nj.Module):
 
   def __init__(self, size):
-    self.mlp = MLP([128, 128])
-    self.out = Linear(size)
-    self.opt = Adam(1e-3)
+    self.mlp = MLP([128, 128], name='mlp')
+    self.out = Linear(size, name='out')
+    self.opt = Adam(1e-3, name='opt')
 
   def __call__(self, x):
     x = self.mlp(x)
@@ -36,7 +36,7 @@ def main():
   x = jnp.ones((16, 8), jnp.float32)
   y = jnp.ones((16, 4), jnp.float32)
 
-  model = Module(4)
+  model = Module(4, name='module')
   call = jax.jit(nj.pure(model))
   train = jax.jit(nj.pure(model.train))
   loss = jax.jit(nj.pure(model.loss))
