@@ -1,10 +1,12 @@
 import setuptools
 import pathlib
 
+import ninjax
+
 
 setuptools.setup(
     name='ninjax',
-    version='0.8.0',
+    version=ninjax.__version__,
     description='General Modules for JAX',
     url='http://github.com/danijar/ninjax',
     long_description=pathlib.Path('README.md').read_text(),

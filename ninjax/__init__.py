@@ -1,3 +1,5 @@
+from .ninjax import __version__
+
 # Basics
 from .ninjax import Module
 from .ninjax import Variable

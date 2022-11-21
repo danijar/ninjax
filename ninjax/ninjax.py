@@ -7,6 +7,8 @@ from functools import partial as bind
 import jax
 import jax.numpy as jnp
 
+__version__ = '0.8.1'
+
 
 ###############################################################################
 # State
@@ -17,7 +19,7 @@ import jax.numpy as jnp
 # in this global variable. The pure() wrapper populates this global variable
 # with the provided state, calls the inner function, and then the takes the
 # resulting state out of the global variable to return it back to the user.
-CONTEXT = [None]
+CONTEXT = None
 
 
 class Context(dict):
@@ -54,29 +56,29 @@ def pure(fun, nested=False):
   def purified(
       state, rng, *args, create=None, modify=None, ignore=None, **kwargs):
     global CONTEXT
-    if CONTEXT[0]:
-      create = create if create is not None else CONTEXT[0].create
-      modify = modify if modify is not None else CONTEXT[0].modify
-      ignore = ignore if ignore is not None else CONTEXT[0].ignore
-      assert CONTEXT[0].create or not create, 'Parent context disabled create.'
-      assert CONTEXT[0].modify or not modify, 'Parent context disabled modify.'
-      assert not CONTEXT[0].ignore or ignore, 'Parent context enabled ignore.'
+    if CONTEXT:
+      create = create if create is not None else CONTEXT.create
+      modify = modify if modify is not None else CONTEXT.modify
+      ignore = ignore if ignore is not None else CONTEXT.ignore
+      assert CONTEXT.create or not create, 'Parent context disabled create.'
+      assert CONTEXT.modify or not modify, 'Parent context disabled modify.'
+      assert not CONTEXT.ignore or ignore, 'Parent context enabled ignore.'
     else:
       create = create if create is not None else True
       modify = modify if modify is not None else True
       ignore = ignore if ignore is not None else False
     if not isinstance(state, dict):
       raise ValueError('Must provide a dict as state.')
-    if CONTEXT[0] and (not nested):
+    if CONTEXT and (not nested):
       raise RuntimeError('If you want to nest run() calls, use nested=True.')
-    before = CONTEXT[0]
+    before = CONTEXT
     try:
-      CONTEXT[0] = Context(state.copy(), rng, create, modify, ignore, [])
+      CONTEXT = Context(state.copy(), rng, create, modify, ignore, [])
       out = fun(*args, **kwargs)
-      state = dict(CONTEXT[0])
+      state = dict(CONTEXT)
       return out, state
     finally:
-      CONTEXT[0] = before
+      CONTEXT = before
   purified.pure = True
   return purified
 
@@ -86,9 +88,9 @@ def context():
   advanced users only. Prefer to use module methods to access and modify state
   and rng() to get the next RNG key."""
   global CONTEXT
-  if CONTEXT[0] is None:
+  if CONTEXT is None:
     raise RuntimeError('Wrap impure functions in pure() before running them.')
-  return CONTEXT[0]
+  return CONTEXT
 
 
 @jax.named_scope('rng')
@@ -277,7 +279,7 @@ def _prerun(fun, *args, **kwargs):
 ###############################################################################
 
 
-SCOPE = ['']
+SCOPE = ''
 
 
 @contextlib.contextmanager
@@ -285,12 +287,12 @@ def scope(name, absolute=False):
   """Enter a relative or absolute name scope. Name scopes are used to make
   names of state entries unique."""
   global SCOPE
-  if SCOPE[0] is None:
+  if SCOPE is None:
     raise RuntimeError('Run stateful functions with run().')
-  outside = SCOPE[0]
-  SCOPE[0] = name if absolute else outside + '/' + name
-  yield SCOPE[0]
-  SCOPE[0] = outside
+  outside = SCOPE
+  SCOPE = name if absolute else outside + '/' + name
+  yield SCOPE
+  SCOPE = outside
 
 
 class ModuleMeta(type):
