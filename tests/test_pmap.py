@@ -33,16 +33,16 @@ class TestPmap:
     state = {}
     value, state = read(state, rng)
     assert value == jnp.array([1])
-    assert state == {'/v/value': jnp.array([1])}
+    assert state == {'v/value': jnp.array([1])}
     value, state = write(state, rng, jnp.array([2]))
     assert value == jnp.array([2])
-    assert state == {'/v/value': jnp.array([2])}
+    assert state == {'v/value': jnp.array([2])}
     value, state = write(state, rng, jnp.array([3]))
     assert value == jnp.array([3])
-    assert state == {'/v/value': jnp.array([3])}
+    assert state == {'v/value': jnp.array([3])}
     value, state = read(state, rng)
     assert value == jnp.array([3])
-    assert state == {'/v/value': jnp.array([3])}
+    assert state == {'v/value': jnp.array([3])}
 
   def test_statics(self):
     def program(x, mode='train'):
@@ -73,22 +73,22 @@ class TestPmap:
     assert not hasattr(bar, 'keys')
     state = foo(state, rng)[1]
     assert state == {
-        '/v1/value': jnp.array([1]),
-        '/v2/value': jnp.array([0])}
+        'v1/value': jnp.array([1]),
+        'v2/value': jnp.array([0])}
     state = bar(state, rng)[1]
     assert state == {
-        '/v1/value': jnp.array([1]),
-        '/v2/value': jnp.array([0]),
-        '/v3/value': jnp.array([2])}
+        'v1/value': jnp.array([1]),
+        'v2/value': jnp.array([0]),
+        'v3/value': jnp.array([2])}
     state = foo(state, rng)[1]
     assert state == {
-        '/v1/value': jnp.array([2]),
-        '/v2/value': jnp.array([0]),
-        '/v3/value': jnp.array([2])}
+        'v1/value': jnp.array([2]),
+        'v2/value': jnp.array([0]),
+        'v3/value': jnp.array([2])}
     state = bar(state, rng)[1]
     assert state == {
-        '/v1/value': jnp.array([2]),
-        '/v2/value': jnp.array([0]),
-        '/v3/value': jnp.array([3])}
-    assert foo.keys == {'/v1/value', '/v2/value'}
-    assert bar.keys == {'/v1/value', '/v3/value'}
+        'v1/value': jnp.array([2]),
+        'v2/value': jnp.array([0]),
+        'v3/value': jnp.array([3])}
+    assert foo.keys == {'v1/value', 'v2/value'}
+    assert bar.keys == {'v1/value', 'v3/value'}

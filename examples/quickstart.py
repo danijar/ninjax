@@ -56,5 +56,5 @@ for x, y in dataset:
   # to the state dictionary.
   loss, state = train(state, rng, x, y)
   # To look at parameters, simply use the state dictionary.
-  assert state['/model/bias'].shape == ()
+  assert state['model/bias'].shape == ()
   print('Loss:', float(loss))

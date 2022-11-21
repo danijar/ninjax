@@ -22,14 +22,14 @@ class TestJit:
     assert not hasattr(read, 'keys')
     assert not hasattr(write, 'keys')
     state = read(state, rng)[1]
-    assert read.keys == {'/v/value'}
-    assert state == {'/v/value': 1}
+    assert read.keys == {'v/value'}
+    assert state == {'v/value': 1}
     state = write(state, rng, 42)[1]
-    assert write.keys == {'/v/value'}
-    assert state == {'/v/value': 42}
+    assert write.keys == {'v/value'}
+    assert state == {'v/value': 42}
     value = read(state, rng)[0]
     assert value == 42
-    assert state == {'/v/value': 42}
+    assert state == {'v/value': 42}
 
   def test_statics(self):
     def program(x, mode='train'):
@@ -58,15 +58,15 @@ class TestJit:
     assert not hasattr(foo, 'keys')
     assert not hasattr(bar, 'keys')
     state = foo(state, rng)[1]
-    assert state == {'/v1/value': 1, '/v2/value': 0}
+    assert state == {'v1/value': 1, 'v2/value': 0}
     state = bar(state, rng)[1]
-    assert state == {'/v1/value': 1, '/v2/value': 0, '/v3/value': 2}
+    assert state == {'v1/value': 1, 'v2/value': 0, 'v3/value': 2}
     state = foo(state, rng)[1]
-    assert state == {'/v1/value': 2, '/v2/value': 0, '/v3/value': 2}
+    assert state == {'v1/value': 2, 'v2/value': 0, 'v3/value': 2}
     state = bar(state, rng)[1]
-    assert state == {'/v1/value': 2, '/v2/value': 0, '/v3/value': 3}
-    assert foo.keys == {'/v1/value', '/v2/value'}
-    assert bar.keys == {'/v1/value', '/v3/value'}
+    assert state == {'v1/value': 2, 'v2/value': 0, 'v3/value': 3}
+    assert foo.keys == {'v1/value', 'v2/value'}
+    assert bar.keys == {'v1/value', 'v3/value'}
 
   def test_side_effect(self):
     counter = nj.Variable(jnp.array, 0, name='counter')

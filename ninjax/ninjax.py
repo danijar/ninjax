@@ -7,7 +7,7 @@ from functools import partial as bind
 import jax
 import jax.numpy as jnp
 
-__version__ = '0.8.1'
+__version__ = '0.9.0'
 
 
 ###############################################################################
@@ -290,7 +290,12 @@ def scope(name, absolute=False):
   if SCOPE is None:
     raise RuntimeError('Run stateful functions with run().')
   outside = SCOPE
-  SCOPE = name if absolute else outside + '/' + name
+  if absolute:
+    SCOPE = name
+  elif SCOPE == '':
+    SCOPE = name
+  else:
+    SCOPE = outside + '/' + name
   yield SCOPE
   SCOPE = outside
 

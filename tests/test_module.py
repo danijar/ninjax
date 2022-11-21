@@ -17,16 +17,16 @@ class TestModule:
     params = {}
     rng = jax.random.PRNGKey(0)
     foo = Foo(name='foo')
-    assert foo.path == '/foo'
+    assert foo.path == 'foo'
     result, params = nj.pure(foo.method)(params, rng)
     assert result == 8
-    assert set(params.keys()) == {'/foo/bar/value', '/foo/baz'}
+    assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
     result, params = nj.pure(foo.method)(params, rng)
     assert result == 13
-    assert set(params.keys()) == {'/foo/bar/value', '/foo/baz'}
+    assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
     result, params = nj.pure(foo.method)(params, rng)
     assert result == 18
-    assert set(params.keys()) == {'/foo/bar/value', '/foo/baz'}
+    assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
 
   def test_cloudpickle(self):
     import cloudpickle
@@ -41,15 +41,15 @@ class TestModule:
     params = {}
     rng = jax.random.PRNGKey(0)
     foo = Foo(name='foo')
-    assert foo.path == '/foo'
+    assert foo.path == 'foo'
     result, params = nj.pure(foo.method)(params, rng)
     assert result == 8
-    assert set(params.keys()) == {'/foo/bar/value', '/foo/baz'}
+    assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
     result, params = nj.pure(foo.method)(params, rng)
     assert result == 13
-    assert set(params.keys()) == {'/foo/bar/value', '/foo/baz'}
+    assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
     foo2 = cloudpickle.loads(cloudpickle.dumps(foo))
-    assert foo2.path == '/foo'
+    assert foo2.path == 'foo'
     result, params = nj.pure(foo2.method)(params, rng)
     assert result == 18
-    assert set(params.keys()) == {'/foo/bar/value', '/foo/baz'}
+    assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
