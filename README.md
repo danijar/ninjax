@@ -154,14 +154,23 @@ class Module(nj.Module):
 
 ### How can I use JIT compilation?
 
-The `nj.run()` function makes the state your JAX code uses explicit, so it can
-be jitted and transformed freely:
+The `nj.pure()` function makes the state your JAX code uses explicit, so it can
+be transformed freely:
 
 ```python3
 model = Model()
-train = jax.jit(functools.partial(nj.run, model.train))
-train(state, rng, ...)
+train = jax.jit(nj.pure(model.train))
+params = {}
+result, params = train(param, rng, ...)
 ```
+
+Calling the pure function will create any parameters that are not yet in the
+`params` dictionary and return the new parameters alongside the function
+output.
+
+You can speed up the first function call (where parameters are created) by
+using `nj.jit` instead of `jax.jit`. Internally, this avoids compiling two
+versions of the function.
 
 ### How can I compute gradients?
 

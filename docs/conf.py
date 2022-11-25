@@ -1,6 +1,16 @@
+# Mock dependencies
 import sys, os, unittest.mock
 for name in ['jax', 'jax.numpy', 'haiku', 'flax', 'optax']:
   sys.modules[name] = unittest.mock.MagicMock()
+
+# Work around MagicMock not preserving docstrings.
+import jax, contextlib
+class MockScope(contextlib.ContextDecorator):
+  def __init__(self, fn=None, *args, **kwargs): self.fn = fn
+  def __enter__(self): return self.fn
+jax.named_scope = MockScope
+
+# Import NinJax from repository
 sys.path.insert(0, os.path.abspath('../ninjax'))
 import ninjax as nj
 sys.modules['nj'] = nj

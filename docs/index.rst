@@ -32,7 +32,6 @@ Advanced
 .. autofunction:: context
 .. autofunction:: creating
 .. autofunction:: scope
-.. autofunction:: reset
 
 Integrations
 ------------
@@ -57,7 +56,6 @@ Reference
    context
    creating
    scope
-   reset
    HaikuModule
    FlaxModule
    OptaxModule
