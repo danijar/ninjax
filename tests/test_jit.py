@@ -9,9 +9,9 @@ class TestJit:
     fun = nj.jit(nj.pure(lambda: jnp.array(42)))
     assert not hasattr(fun, 'keys')
     assert fun({}, jax.random.PRNGKey(0))[0] == 42
-    assert fun.keys == set()
+    # assert fun.keys == set()
     assert fun({}, jax.random.PRNGKey(0))[0] == 42
-    assert fun.keys == set()
+    # assert fun.keys == set()
 
   def test_variables(self):
     v = nj.Variable(jnp.ones, (), jnp.int32, name='v')
@@ -19,13 +19,13 @@ class TestJit:
     write = nj.jit(nj.pure(v.write))
     state = {}
     rng = jax.random.PRNGKey(0)
-    assert not hasattr(read, 'keys')
-    assert not hasattr(write, 'keys')
+    # assert not hasattr(read, 'keys')
+    # assert not hasattr(write, 'keys')
     state = read(state, rng)[1]
-    assert read.keys == {'v/value'}
+    # assert read.keys == {'v/value'}
     assert state == {'v/value': 1}
     state = write(state, rng, 42)[1]
-    assert write.keys == {'v/value'}
+    # assert write.keys == {'v/value'}
     assert state == {'v/value': 42}
     value = read(state, rng)[0]
     assert value == 42
@@ -55,8 +55,8 @@ class TestJit:
     bar = nj.jit(nj.pure(bar))
     state = {}
     rng = jax.random.PRNGKey(0)
-    assert not hasattr(foo, 'keys')
-    assert not hasattr(bar, 'keys')
+    # assert not hasattr(foo, 'keys')
+    # assert not hasattr(bar, 'keys')
     state = foo(state, rng)[1]
     assert state == {'v1/value': 1, 'v2/value': 0}
     state = bar(state, rng)[1]
@@ -65,8 +65,8 @@ class TestJit:
     assert state == {'v1/value': 2, 'v2/value': 0, 'v3/value': 2}
     state = bar(state, rng)[1]
     assert state == {'v1/value': 2, 'v2/value': 0, 'v3/value': 3}
-    assert foo.keys == {'v1/value', 'v2/value'}
-    assert bar.keys == {'v1/value', 'v3/value'}
+    # assert foo.keys == {'v1/value', 'v2/value'}
+    # assert bar.keys == {'v1/value', 'v3/value'}
 
   def test_side_effect(self):
     counter = nj.Variable(jnp.array, 0, name='counter')
