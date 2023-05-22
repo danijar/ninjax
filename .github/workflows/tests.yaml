@@ -10,12 +10,12 @@ jobs:
       matrix:
         python-version: ["3.8", "3.9", "3.10"]
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: Install Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install jax
@@ -25,11 +25,13 @@ jobs:
         python -m pip install flax
         python -m pip install optax
         python -m pip install cloudpickle
+    - name: Installation
+      run: |
         python -m pip install -e .
-    - name: Run tests
+    - name: Tests
       run: |
         python -m pytest tests
-    - name: Run examples
+    - name: Examples
       run: |
         python -m examples.quickstart
         python -m examples.libraries

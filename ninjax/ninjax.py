@@ -8,7 +8,7 @@ from functools import partial as bind
 import jax
 import jax.numpy as jnp
 
-__version__ = '1.1.2'
+__version__ = '1.2.0'
 
 
 ###############################################################################
@@ -165,30 +165,31 @@ def grad(fun, keys, has_aux=False):
   return wrapper
 
 
-def jit(fun, static=None, **kwargs):
+def jit(fun, static=(), donate=(), **jit_kwargs):
   """Compiles a pure function for fast execution. Only the first call of the
   function is allowed to create state entries."""
-  static = static or ()
-  kwargs['static_argnums'] = [0]
+  jit_kwargs['static_argnums'] = [0]
+  jit_kwargs['donate_argnums'] = [1]
 
-  @bind(jax.jit, **kwargs)
-  def _init(statics, rng, *args, **kw):
-    # Return only state so JIT can remove dead code for fast initialization.
-    s = fun({}, rng, *args, ignore=True, **dict(statics), **kw)[1]
-    return s
+  @bind(jax.jit, **jit_kwargs)
+  def _init(_static, _donate, *args, **kwargs):
+    _static = dict(_static)
+    _donate = {k: v for k, v in zip(donate, _donate)}
+    return fun({}, *args, ignore=True, **_static, **_donate, **kwargs)[1]
 
-  @bind(jax.jit, **kwargs)
-  def _apply(statics, state, rng, *args, **kw):
-    return fun(state, rng, *args, create=False, **dict(statics), **kw)
+  @bind(jax.jit, **jit_kwargs)
+  def _apply(_static, _donate, *args, **kwargs):
+    _static = dict(_static)
+    _donate = {k: v for k, v in zip(donate, _donate)}
+    return fun(*args, create=False, **_static, **_donate, **kwargs)
 
   @functools.wraps(fun)
-  def wrapper(state, rng, *args, init=True, apply=True, **kw):
-    state = state.copy()
-    statics = tuple(sorted([(k, v) for k, v in kw.items() if k in static]))
-    kw = {k: v for k, v in kw.items() if k not in static}
+  def wrapper(state, *args, init=True, apply=True, **kwargs):
+    _static = tuple((k, kwargs.pop(k)) for k in static if k in kwargs)
+    _donate = tuple(kwargs.pop(k) for k in donate)
     if not hasattr(wrapper, 'keys'):
       if init:
-        created = _init(statics, rng, *args, **kw)
+        created = _init(_static, _donate, *args, **kwargs)
         wrapper.keys = set(created.keys())
         state = {**created, **state}
       else:
@@ -196,35 +197,37 @@ def jit(fun, static=None, **kwargs):
     if not apply:
       return state
     selected = {k: v for k, v in state.items() if k in wrapper.keys}
-    out, updated = _apply(statics, selected, rng, *args, **kw)
+    out, updated = _apply(_static, _donate, selected, *args, **kwargs)
     return out, {**state, **updated}
   return wrapper
 
 
-def pmap(fun, axis_name=None, static=None, **kwargs):
+def pmap(fun, axis_name=None, static=(), donate=(), **pmap_kwargs):
   """Compiles n pure function for fast execution across multiple devices. Only
   the first call of the function is allowed to create state entries."""
-  static = static or ()
-  kwargs['static_broadcasted_argnums'] = [0]
-  kwargs['axis_name'] = axis_name
+  pmap_kwargs['axis_name'] = axis_name
+  pmap_kwargs['static_broadcasted_argnums'] = [0]
+  pmap_kwargs['donate_argnums'] = [1]
 
-  @bind(jax.pmap, **kwargs)
-  def _init(statics, rng, *args, **kw):
-    # Return only state so JIT can remove dead code for fast initialization.
-    return fun({}, rng, *args, ignore=True, **dict(statics), **kw)[1]
+  @bind(jax.pmap, **pmap_kwargs)
+  def _init(_static, _donate, *args, **kwargs):
+    _static = dict(_static)
+    _donate = {k: v for k, v in zip(donate, _donate)}
+    return fun({}, *args, ignore=True, **_static, **_donate, **kwargs)[1]
 
-  @bind(jax.pmap, **kwargs)
-  def _apply(statics, state, rng, *args, **kw):
-    return fun(state, rng, *args, create=False, **dict(statics), **kw)
+  @bind(jax.pmap, **pmap_kwargs)
+  def _apply(_static, _donate, *args, **kwargs):
+    _static = dict(_static)
+    _donate = {k: v for k, v in zip(donate, _donate)}
+    return fun(*args, create=False, **_static, **_donate, **kwargs)
 
   @functools.wraps(fun)
-  def wrapper(state, rng, *args, init=True, apply=True, **kw):
-    state = state.copy()
-    statics = tuple(sorted([(k, v) for k, v in kw.items() if k in static]))
-    kw = {k: v for k, v in kw.items() if k not in static}
+  def wrapper(state, *args, init=True, apply=True, **kwargs):
+    _static = tuple((k, kwargs.pop(k)) for k in static if k in kwargs)
+    _donate = tuple(kwargs.pop(k) for k in donate)
     if not hasattr(wrapper, 'keys'):
       if init:
-        created = _init(statics, rng, *args, **kw)
+        created = _init(_static, _donate, *args, **kwargs)
         wrapper.keys = set(created.keys())
         state = {**created, **state}
       else:
@@ -232,7 +235,7 @@ def pmap(fun, axis_name=None, static=None, **kwargs):
     if not apply:
       return state
     selected = {k: v for k, v in state.items() if k in wrapper.keys}
-    out, updated = _apply(statics, selected, rng, *args, **kw)
+    out, updated = _apply(_static, _donate, selected, *args, **kwargs)
     return out, {**state, **updated}
   return wrapper
 
