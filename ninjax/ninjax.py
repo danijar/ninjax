@@ -311,8 +311,10 @@ def scope(name, absolute=False):
     SCOPE = name
   else:
     SCOPE = outside + '/' + name
-  yield SCOPE
-  SCOPE = outside
+  try:
+    yield SCOPE
+  finally:
+    SCOPE = outside
 
 
 class ModuleMeta(type):
