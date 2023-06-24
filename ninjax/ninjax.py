@@ -135,6 +135,29 @@ def creating():
 ###############################################################################
 
 
+def grad_type(fun, *args, **kwargs):
+  in_primals, in_tree = jax.tree_util.tree_flatten((args, kwargs))
+  flat_fun, _ = jax._src.api_util.flatten_fun(
+    jax.linear_util.wrap_init(fun), in_tree)
+  out_primals, out_pvals, jaxpr, consts = jax.interpreters.ad.linearize(
+    flat_fun, *in_primals)
+  dummy_args = [
+    jax.interpreters.ad.UndefinedPrimal(v.aval) for v in jaxpr.invars]
+  cts = [
+    ct for ct, pval in zip(out_primals, out_pvals) if not pval.is_known()]
+  nonzero_cotangents = None
+  def backward_pass(cts):
+    nonlocal nonzero_cotangents
+    arg_cts = jax.interpreters.ad.backward_pass(
+      jaxpr, (), False, consts, dummy_args, cts)
+    nonzero_cotangents = [
+      type(ct) is not jax._src.ad_util.Zero for ct in arg_cts]
+  dummy_cts = [
+    y for y, pval in zip(out_primals, out_pvals) if not pval.is_known()]
+  jax.make_jaxpr(backward_pass)(dummy_cts)
+  return jax.tree_util.tree_unflatten(in_tree, nonzero_cotangents)
+
+
 @jax.named_scope('grad')
 def grad(fun, keys, has_aux=False):
   """Compute the gradient of an impure function with respect to the specified
@@ -159,7 +182,12 @@ def grad(fun, keys, has_aux=False):
       strs += mod.getm()
     x1 = {k: v for k, v in context().items() if k in strs}
     x2 = {k: v for k, v in context().items() if k not in strs}
-    (y, (aux, state)), dx = backward(x1, x2, rng(), *args, **kwargs)
+    rng_key = rng()
+    x1_has_grad = grad_type(forward, x1, x2, rng_key, *args, **kwargs)[0][0]
+    for key, has_grad in x1_has_grad.items():
+      if not has_grad:
+        raise ValueError(f'Cannot backprop w.r.t. unconnected input {key}.')
+    (y, (aux, state)), dx = backward(x1, x2, rng_key), *args, **kwargs)
     context().update(state)
     return (y, x1, dx, aux) if has_aux else (y, x1, dx)
   return wrapper
