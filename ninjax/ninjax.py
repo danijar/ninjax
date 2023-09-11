@@ -8,7 +8,7 @@ from functools import partial as bind
 import jax
 import jax.numpy as jnp
 
-__version__ = '1.2.0'
+__version__ = '1.2.1'
 
 
 ###############################################################################
@@ -350,7 +350,7 @@ class ModuleMeta(type):
     if not isinstance(name, str):
       raise KeyError(
           "Please provide a module name via Module(..., name='example').")
-    if not re.match(r'[A-Za-z0-9_]+', name):
+    if not re.match(r'^[A-Za-z0-9_]+$', name):
       raise KeyError(
           'Only letters, numbers, and underscores are allowed in scope names.')
     obj = cls.__new__(cls)
