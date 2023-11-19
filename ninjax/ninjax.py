@@ -8,7 +8,7 @@ from functools import partial as bind
 import jax
 import jax.numpy as jnp
 
-__version__ = '1.2.1'
+__version__ = '1.4.2'
 
 
 ###############################################################################
@@ -49,10 +49,12 @@ class Context(dict):
           f'You were trying to set {key} to shape {value.shape} and ' +
           f'dtype {value.dtype}.')
     if not self.modify:
+      existing = self[key]
       raise RuntimeError(
-          'Cannot modify state entries here. If you want to modify '
-          'state inside of scan() set modify=True. ' +
-          f'You were trying to set {key} to shape {value.shape} and ' +
+          'Cannot modify state entries here. (If you want to modify '
+          'state inside of scan() set modify=True.) ' +
+          f'You were trying to change {key} from shape {existing.shape} '
+          f'and dtype {existing.dtype} to shape {value.shape} and ' +
           f'dtype {value.dtype}.')
     super().__setitem__(key, value)
 
@@ -160,7 +162,8 @@ def grad(fun, keys, has_aux=False):
     x1 = {k: v for k, v in context().items() if k in strs}
     x2 = {k: v for k, v in context().items() if k not in strs}
     (y, (aux, state)), dx = backward(x1, x2, rng(), *args, **kwargs)
-    context().update(state)
+    if context().modify:
+      context().update(state)
     return (y, x1, dx, aux) if has_aux else (y, x1, dx)
   return wrapper
 
@@ -251,7 +254,8 @@ def cond(pred, true_fun, false_fun, *operands):
       lambda state, rng1, rng2, *args: true_fun(state, rng1, *args),
       lambda state, rng1, rng2, *args: false_fun(state, rng2, *args),
       dict(context()), *rng(2), *operands)
-  context().update(state)
+  if context().modify:
+    context().update(state)
   return out
 
 
@@ -269,7 +273,8 @@ def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
       return (carry, state), y
     (carry, state), ys = jax.lax.scan(
         inner, (carry, dict(context())), (xs, rngs), length, reverse, unroll)
-    context().update(state)
+    if context().modify:
+      context().update(state)
   else:
     def inner(carry, x):
       x, rng = x
@@ -313,6 +318,14 @@ def scope(name, absolute=False):
     SCOPE = outside + '/' + name
   try:
     yield SCOPE
+  except Exception as e:
+    if not hasattr(e, '_njscope'):
+      e._njscope = SCOPE
+      if hasattr(e, 'add_note'):
+        e.add_note(f"This happened inside Ninjax scope '{SCOPE}'")
+      else:
+        print(f"Exception happened inside Ninjax scope '{SCOPE}'")
+    raise
   finally:
     SCOPE = outside
 
@@ -338,6 +351,11 @@ class ModuleMeta(type):
       elif inspect.isfunction(value):
         method_names.append(key)
     cls = super(ModuleMeta, mcs).__new__(mcs, name, bases, clsdict)
+    cls.__field_defaults = {
+        k: getattr(cls, k) for k, v in cls.__annotations__.items()
+        if hasattr(cls, k)}
+    for key, value in cls.__annotations__.items():
+      setattr(cls, key, property(lambda self, key=key: self.__fields[key]))
     for method_name in method_names:
       method = getattr(cls, method_name)
       method = _scope_method(method)
@@ -348,12 +366,28 @@ class ModuleMeta(type):
     """This runs once per use module instance creation. It derives a unique
     name and path for the module instance."""
     if not isinstance(name, str):
-      raise KeyError(
+      raise TypeError(
           "Please provide a module name via Module(..., name='example').")
     if not re.match(r'^[A-Za-z0-9_]+$', name):
-      raise KeyError(
-          'Only letters, numbers, and underscores are allowed in scope names.')
+      raise ValueError(
+          'Only letters, numbers, and underscores are allowed in scope names; '
+          f'got: {name}')
+    fields = {}
+    for key, typ in cls.__annotations__.items():
+      if key in kwargs:
+        value = kwargs.pop(key)
+      elif key in cls.__field_defaults:
+        value = cls.__field_defaults[key]
+      else:
+        raise TypeError(
+            f"Pass a keyword argument for field '{key}' or define a default.")
+      if not isinstance(value, typ):
+        raise TypeError(
+            f"Value '{value}' for field '{key}' is not of type "
+            f"'{typ.__name__}'.")
+      fields[key] = value
     obj = cls.__new__(cls)
+    obj.__fields = fields
     with scope(name) as path:
       obj._path = path
     obj._submodules = {}

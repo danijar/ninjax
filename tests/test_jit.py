@@ -1,4 +1,4 @@
-import jax as jax
+import jax
 import jax.numpy as jnp
 import ninjax as nj
 
