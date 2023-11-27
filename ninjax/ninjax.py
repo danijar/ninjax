@@ -381,7 +381,7 @@ class ModuleMeta(type):
       else:
         raise TypeError(
             f"Pass a keyword argument for field '{key}' or define a default.")
-      if not isinstance(value, typ):
+      if typ is not None and not isinstance(value, typ):
         raise TypeError(
             f"Value '{value}' for field '{key}' is not of type "
             f"'{typ.__name__}'.")
