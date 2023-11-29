@@ -33,4 +33,4 @@ jobs:
     - name: Examples
       run: |
         python -m examples.quickstart
-        python -m examples.libraries
+        python -m examples.integrations

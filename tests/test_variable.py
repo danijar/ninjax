@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 import ninjax as nj
 
@@ -6,40 +5,39 @@ import ninjax as nj
 class TestVariable:
 
   def test_reassign(self):
+    @nj.pure
     def program(x1, x2):
       v = nj.Variable(jnp.ones, (), jnp.int32, name='v')
-      y1 = v.read()
+      a = v.read()
       v.write(x1)
-      y2 = v.read()
+      b = v.read()
       v.write(x2)
-      y3 = v.read()
-      return y1, y2, y3
-    rng = jax.random.PRNGKey(0)
-    (y1, y2, y3), state = nj.pure(program)({}, rng, 12, 42)
-    assert y1 == 1
-    assert y2 == 12
-    assert y3 == 42
+      c = v.read()
+      return a, b, c
+    state = nj.init(program)({}, 0, 0)
+    assert state == {'v/value': 1}
+    state, (a, b, c) = program(state, 12, 42)
+    assert a == 1
+    assert b == 12
+    assert c == 42
     assert state == {'v/value': 42}
 
-  def test_separate_runs(self):
+  def test_repeat(self):
     state = {}
-    rng = jax.random.PRNGKey(0)
     v = nj.Variable(jnp.ones, (), jnp.int32, name='v')
-    value, state = nj.pure(v.read)(state, rng)
+    state, value = nj.pure(v.read)(state, create=True)
     assert value == 1
     assert state == {'v/value': 1}
-    value, state = nj.pure(v.write)(state, rng, 42)
+    state, value = nj.pure(v.write)(state, 42)
     assert value == 42
     assert state == {'v/value': 42}
-    value, state = nj.pure(v.read)(state, rng)
+    state, value = nj.pure(v.read)(state)
     assert value == 42
     assert state == {'v/value': 42}
 
   def test_name_reuse(self):
-    state = {}
-    rng = jax.random.PRNGKey(0)
-    v1 = nj.Variable(lambda: jnp.array(1), name='Foo')
-    v2 = nj.Variable(lambda: jnp.array(2), name='Foo')  # Constructor unused.
-    v3 = nj.Variable(lambda: jnp.array(3), name='Bar')
-    _, state = nj.pure(lambda: [v1.read(), v2.read(), v3.read()])(state, rng)
+    a = nj.Variable(lambda: jnp.array(1), name='Foo')
+    b = nj.Variable(lambda: jnp.array(2), name='Foo')  # Constructor unused.
+    c = nj.Variable(lambda: jnp.array(3), name='Bar')
+    state, _ = nj.pure(lambda: [a.read(), b.read(), c.read()])({}, create=True)
     assert state == {'Foo/value': 1, 'Bar/value': 3}

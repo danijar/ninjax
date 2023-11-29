@@ -1,5 +1,3 @@
-import functools
-
 import flax.linen as nn
 import haiku as hk
 import jax
@@ -7,9 +5,9 @@ import jax.numpy as jnp
 import ninjax as nj
 import optax
 
-MLP = functools.partial(nj.HaikuModule, hk.nets.MLP)
-Linear = functools.partial(nj.FlaxModule, nn.Dense)
-Adam = functools.partial(nj.OptaxModule, optax.adam)
+MLP = nj.FromHaiku(hk.nets.MLP)
+Linear = nj.FromFlax(nn.Dense)
+Adam = nj.FromOptax(optax.adam)
 
 
 class Module(nj.Module):
@@ -26,7 +24,7 @@ class Module(nj.Module):
     return x
 
   def train(self, x, y):
-    return self.opt(self.loss, [self.mlp, self.out], x, y)
+    return self.opt(self.loss, [self.mlp, self.out], x, y)[0]
 
   def loss(self, x, y):
     return ((self(x) - y) ** 2).mean()
@@ -35,18 +33,12 @@ class Module(nj.Module):
 def main():
   x = jnp.ones((16, 8), jnp.float32)
   y = jnp.ones((16, 4), jnp.float32)
-
   model = Module(4, name='module')
-  call = jax.jit(nj.pure(model))
+  state = nj.init(model.train)({}, x, y, seed=0)
   train = jax.jit(nj.pure(model.train))
-  loss = jax.jit(nj.pure(model.loss))
-
-  state = {}
-  main = jax.random.PRNGKey(0)
   for step in range(5):
-    rng, main = jax.random.split(main)
-    metrics, state = train(state, rng, x, y)
-    print('Loss:', float(metrics['loss']))
+    state, loss = train(state, x, y)
+    print('Loss:', float(loss))
 
 
 if __name__ == '__main__':

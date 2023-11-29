@@ -4,14 +4,11 @@ from .ninjax import __version__
 from .ninjax import Module
 from .ninjax import Variable
 from .ninjax import pure
-from .ninjax import rng
+from .ninjax import init
+from .ninjax import seed
 
 # Transforms
 from .ninjax import grad
-from .ninjax import jit
-from .ninjax import pmap
-
-# Control Flow
 from .ninjax import cond
 from .ninjax import scan
 
@@ -21,6 +18,6 @@ from .ninjax import creating
 from .ninjax import scope
 
 # Integrations
-from .ninjax import HaikuModule
-from .ninjax import FlaxModule
-from .ninjax import OptaxModule
+from .ninjax import FromHaiku
+from .ninjax import FromFlax
+from .ninjax import FromOptax

@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 import ninjax as nj
 
@@ -6,15 +5,16 @@ import ninjax as nj
 class TestCond:
 
   def test_basic(self):
+    @nj.pure
     def program(x):
       return nj.cond(x, lambda: 12, lambda: 42)
-    rng = jax.random.PRNGKey(0)
-    assert nj.pure(program)({}, rng, True)[0] == 12
-    assert nj.pure(program)({}, rng, False)[0] == 42
+    assert program({}, True)[1] == 12
+    assert program({}, False)[1] == 42
 
   def test_state(self):
     v = nj.Variable(jnp.ones, (), jnp.int32, name='v')
     w = nj.Variable(jnp.ones, (), jnp.int32, name='w')
+    @nj.pure
     def program(x):
       def true_fn():
         return v.read() + w.read()
@@ -22,21 +22,21 @@ class TestCond:
         v.write(42)
         return 12
       return nj.cond(x, true_fn, false_fn)
-    state = {}
-    rng = jax.random.PRNGKey(0)
-    out, state = nj.pure(program)(state, rng, True)
+    state = nj.init(program)({}, True)
+    assert state == {'v/value': 1, 'w/value': 1}
+    state, out = program(state, True)
     assert out == 2
-    out, state = nj.pure(program)(state, rng, False)
+    state, out = program(state, False)
     assert out == 12
-    out, state = nj.pure(program)(state, rng, True)
+    state, out = program(state, True)
     assert out == 43
 
-  def test_branch_rngs(self):
+  def test_seeds(self):
+    @nj.pure
     def program(x):
-      return nj.cond(x, nj.rng, nj.rng)
-    rng = jax.random.PRNGKey(0)
-    key1, _ = nj.pure(program)({}, rng, True)
-    key2, _ = nj.pure(program)({}, rng, False)
-    assert jnp.array(key1).shape == (2,)
-    assert jnp.array(key2).shape == (2,)
-    assert (key1 != key2).all()
+      return nj.cond(x, nj.seed, nj.seed)
+    _, draw1 = program({}, True, seed=0)
+    _, draw2 = program({}, False, seed=0)
+    assert jnp.array(draw1).shape == (2,)
+    assert jnp.array(draw2).shape == (2,)
+    assert (draw1 != draw2).all()

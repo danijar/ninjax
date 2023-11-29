@@ -51,66 +51,72 @@ pip install ninjax
 ## Quickstart
 
 ```python3
-import functools
-
-import haiku as hk
+import flax
 import jax
 import jax.numpy as jnp
 import ninjax as nj
+import optax
 
-# Ninjax supports all Haiku and Flax modules and new libraries are easy to add.
-Linear = functools.partial(nj.HaikuModule, hk.Linear)
+# Supports all Flax and Haiku modules
+Linear = nj.FromFlax(flax.linen.Dense)
 
 
 class MyModel(nj.Module):
 
-  def __init__(self, size, lr=0.01, act=jax.nn.relu):
+  lr: float = 0.01
+
+  def __init__(self, size):
     self.size = size
-    self.lr = lr
-    self.act = act
-    # Define submodules upfront.
+    self.opt = optax.adam(self.lr)
+    # Define submodules upfront
     self.h1 = Linear(128, name='h1')
     self.h2 = Linear(128, name='h2')
 
-  def __call__(self, x):
-    x = self.act(self.h1(x))
-    x = self.act(self.h2(x))
-    # Define submodules inline.
-    x = self.get('h3', Linear, self.size, with_bias=False)(x)
-    # Create state entries of array values.
-    x += self.get('bias', jnp.array, 0.0)
+  def predict(self, x):
+    x = jax.nn.relu(self.h1(x))
+    x = jax.nn.relu(self.h2(x))
+    # Define submodules inline
+    x = self.get('h3', Linear, self.size, use_bias=False)(x)
+    # Create state entries inline
+    x += self.get('bias', jnp.zeros, self.size)
     return x
 
   def train(self, x, y):
-    # Compute gradient with respect to all parameters in this module.
-    loss, params, grad = nj.grad(self.loss, self)(x, y)
-    # Update the parameters with gradient descent.
-    state = jax.tree_util.tree_map(lambda p, g: p - self.lr * g, params, grad)
-    # Update multiple state entries of this module.
-    self.putm(state)
+    # Gradient with respect to submodules or state entries
+    keys = [self.h1, self.h2, f'{self.path}/h3', f'{self.path}/bias']
+    loss, params, grads = nj.grad(self.loss, keys)(x, y)
+    # Update weights
+    optstate = self.get('optstate', self.opt.init, params)
+    updates, optstate = self.opt.update(grads, optstate)
+    new_params = optax.apply_updates(params, updates)
+    self.put(new_params)  # Store the new params
     return loss
 
   def loss(self, x, y):
-    return ((self(x) - y) ** 2).mean()
+    return ((self.predict(x) - y) ** 2).mean()
 
 
-# The complete state is stored in a flat dictionary. Ninjax automatically
-# applies scopes to the string keys based on the module names.
+# Create model and example data
+model = MyModel(3, lr=0.01, name='model')
+x = jnp.ones((64, 32), jnp.float32)
+y = jnp.ones((64, 3), jnp.float32)
+
+# Populate initial state from one or more functions
 state = {}
-model = MyModel(8, name='model')
-train = nj.pure(model.train)  # nj.jit(...), nj.pmap(...)
-main = jax.random.PRNGKey(0)
+state = nj.init(model.train)(state, x, y, seed=0)
+print(state['model/bias'])  # [0., 0., 0.]
 
-# Let's train on some example data.
-dataset = [(jnp.ones((64, 32)), jnp.ones((64, 8)))] * 10
-for x, y in dataset:
-  rng, main = jax.random.split(main)
-  # Variables are automatically initialized on the first call. This adds them
-  # to the state dictionary.
-  loss, state = train(state, rng, x, y)
-  # To look at parameters, simply use the state dictionary.
-  assert state['/model/bias'].shape == ()
+# Purify and jit one or more functions
+train = nj.pure(model.train)
+train = jax.jit(train)
+
+# Training loop
+for x, y in [(x, y)] * 10:
+  state, loss = train(state, x, y)
   print('Loss:', float(loss))
+
+# Look at the parameters
+print(state['model/bias'])  # [-1.2e-09  1.8e-08 -2.5e-09]
 ```
 
 ## Tutorial
