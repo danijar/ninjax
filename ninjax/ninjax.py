@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 
 ###############################################################################
@@ -28,18 +28,21 @@ class Context(dict):
 
   def __init__(self, entries, seed, create, modify, ignore, reserve, name):
     super().__init__(entries)
-    self.create = create  # Allow creating new state entries.
-    self.modify = modify  # Allow modifying existing state entries.
-    self.ignore = ignore  # Ignore modifications to existing state entries.
+    self.create = create   # Allow creating new state entries.
+    self.modify = modify   # Allow modifying existing state entries.
+    self.ignore = ignore   # Ignore modifications to existing state entries.
     self.seed = seed
     self.reserve = reserve
     self.name = name
+    self.modified = set()  # Keys created, modified, or attempted to modify.
 
   def update(self, entries):
     for key, value in dict(entries).items():
       self[key] = value
 
   def __setitem__(self, key, value):
+    if key in self:
+      self.modified.add(key)
     if self.ignore and key in self:
       return  # Do not overwrite existing entries.
     if not self.create and key not in self:
@@ -74,10 +77,12 @@ def pure(fun, nested=False):
     allowed to modify existing state entries.
   - `ignore=False`: Boolean indicating whether state modifications by the
     impure function will be ignored silently; useful for initialization.
+  - `track=False`: Boolean indicating whether to return the set of state
+    keys that the impure function modified or attempted to modify.
   """
   def purified(
       state, *args, seed=None, create=None, modify=None, ignore=None,
-      **kwargs):
+      track=False, **kwargs):
     if isinstance(seed, int) or (hasattr(seed, 'shape') and seed.shape == ()):
       seed = jnp.array([seed, seed], jnp.uint32)
     context = CONTEXT.get(threading.get_ident(), None)
@@ -106,6 +111,8 @@ def pure(fun, nested=False):
       CONTEXT[threading.get_ident()] = context
       out = fun(*args, **kwargs)
       state = dict(context)
+      if track:
+        return state, out, context.modified
       return state, out
     finally:
       CONTEXT[threading.get_ident()] = before
@@ -180,12 +187,10 @@ def grad(fun, keys, has_aux=False):
   if not has_aux:
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, *kwargs), {})
   fun = pure(fun, nested=True)
-  def forward(x1, x2, *args, **kwargs):
-    state, (y, aux) = fun({**x1, **x2}, *args, create=False, **kwargs)
-    return y, (state, aux)
-  backward = jax.value_and_grad(forward, has_aux=True)
+
   def wrapper(*args, **kwargs):
-    _prerun(fun, *args, **kwargs)
+    changed = _prerun(fun, *args, **kwargs)
+
     strs = []
     for key in keys:
       if isinstance(key, Module):
@@ -201,10 +206,18 @@ def grad(fun, keys, has_aux=False):
     x1 = {k: v for k, v in context().items() if k in strs}
     x2 = {k: v for k, v in context().items() if k not in strs}
     assert x1
-    (y, (state, aux)), dx = backward(
+
+    def forward(x1, x2, *args, **kwargs):
+      before = {**x1, **x2}
+      state, (y, aux) = fun(before, *args, create=False, **kwargs)
+      changes = {k: v for k, v in state.items() if k in changed}
+      return y, (changes, aux)
+    backward = jax.value_and_grad(forward, has_aux=True)
+
+    (y, (changes, aux)), dx = backward(
         x1, x2, *args, seed=seed(None, True), **kwargs)
     if context().modify:
-      context().update(state)
+      context().update(changes)
     return (y, x1, dx, aux) if has_aux else (y, x1, dx)
   return wrapper
 
@@ -213,53 +226,71 @@ def grad(fun, keys, has_aux=False):
 def cond(pred, true_fun, false_fun, *operands):
   true_fun = pure(true_fun, nested=True)
   false_fun = pure(false_fun, nested=True)
-  _prerun(true_fun, *operands)
-  _prerun(false_fun, *operands)
-  state, out = jax.lax.cond(
-      pred,
-      lambda state, seed1, seed2, *args: true_fun(state, *args, seed=seed1),
-      lambda state, seed1, seed2, *args: false_fun(state, *args, seed=seed2),
+
+  changed = set()
+  changed |= _prerun(true_fun, *operands)
+  changed |= _prerun(false_fun, *operands)
+
+  def true_fun_wrapper(state, seed1, seed2, *args):
+    state, outs = true_fun(state, *args, seed=seed1)
+    changes = {k: v for k, v in state.items() if k in changed}
+    return changes, outs
+
+  def false_fun_wrapper(state, seed1, seed2, *args):
+    state, outs = false_fun(state, *args, seed=seed2)
+    changes = {k: v for k, v in state.items() if k in changed}
+    return changes, outs
+
+  changes, out = jax.lax.cond(
+      pred, true_fun_wrapper, false_fun_wrapper,
       dict(context()), *seed(2, True), *operands)
   if context().modify:
-    context().update(state)
+    context().update(changes)
   return out
 
 
 @jax.named_scope('scan')
-def scan(fun, carry, xs, reverse=False, unroll=1, modify=False):
+def scan(fun, carry, xs, reverse=False, unroll=1, axis=0):
+  if axis:
+    xs = jax.tree_util.tree_map(lambda x: x.swapaxes(0, axis), xs)
+
   fun = pure(fun, nested=True)
-  _prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
+  changed = _prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
+  outer = context()
+  changing = {k: v for k, v in outer.items() if k in changed}
+  unchanging = {k: v for k, v in outer.items() if k not in changed}
+
+  def inner(carry, x):
+    carry, changing = carry
+    x, seed = x
+    state = {**unchanging, **changing}
+    state, (carry, y) = fun(state, carry, x, create=False, seed=seed)
+    changing = {k: v for k, v in state.items() if k in changed}
+    return (carry, changing), y
+
   length = len(jax.tree_util.tree_leaves(xs)[0])
   seeds = seed(length, True)
-  if modify:
-    def inner(carry, x):
-      carry, state = carry
-      x, seed = x
-      state, (carry, y) = fun(state, carry, x, create=False, seed=seed)
-      return (carry, state), y
-    (carry, state), ys = jax.lax.scan(
-        inner, (carry, dict(context())), (xs, seeds), length, reverse, unroll)
-    if context().modify:
-      context().update(state)
-  else:
-    def inner(carry, x):
-      x, seed = x
-      state, (carry, y) = fun(
-          dict(context()), carry, x, create=False, modify=False, seed=seed)
-      return carry, y
-    carry, ys = jax.lax.scan(
-        inner, carry, (xs, seeds), length, reverse, unroll)
+  (carry, changes), ys = jax.lax.scan(
+      inner, (carry, changing), (xs, seeds), length, reverse, unroll)
+
+  if context().modify:
+    context().update(changes)
+
+  if axis:
+    ys = jax.tree_util.tree_map(lambda y: y.swapaxes(0, axis), ys)
   return carry, ys
 
 
-@jax.named_scope('_prerun')
+@jax.named_scope('prerun')
 def _prerun(fun, *args, **kwargs):
-  if not creating():
-    return
-  state, discarded = fun(
-      dict(context()), *args, ignore=True, seed=seed(None, True), **kwargs)
-  del discarded
+  if not context().modify and not context().create:
+    return set()
+  state, output, modified = fun(
+      dict(context()), *args, ignore=True, track=True,
+      seed=seed(None, True), **kwargs)
+  del output
   context().update(state)
+  return modified
 
 
 ###############################################################################

@@ -1,4 +1,3 @@
-import jax
 import jax.numpy as jnp
 import ninjax as nj
 
@@ -21,7 +20,7 @@ class TestScan:
       def body(carry, x):
         y = x + v.read()
         return carry + 1, y
-      return nj.scan(body, 0, jnp.array([1, 1, 1]), modify=False)
+      return nj.scan(body, 0, jnp.array([1, 1, 1]))
     _, (carry, ys) = nj.pure(program)({}, create=True)
     assert carry == 3
     assert list(ys) == [1, 1, 1]
@@ -33,7 +32,7 @@ class TestScan:
         y = x + v.read()
         v.write(y)
         return carry + 1, y
-      return nj.scan(body, 0, jnp.array([1, 1, 1]), modify=True)
+      return nj.scan(body, 0, jnp.array([1, 1, 1]))
     _, (carry, ys) = nj.pure(program)({}, create=True)
     assert carry == 3
     assert list(ys) == [1, 2, 3]
