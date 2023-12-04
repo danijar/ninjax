@@ -11,6 +11,7 @@ from .ninjax import seed
 from .ninjax import grad
 from .ninjax import cond
 from .ninjax import scan
+from .ninjax import checkpoint
 
 # Advanced
 from .ninjax import context

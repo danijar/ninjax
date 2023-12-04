@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.1.0'
+__version__ = '2.2.0'
 
 
 ###############################################################################
@@ -279,6 +279,32 @@ def scan(fun, carry, xs, reverse=False, unroll=1, axis=0):
   if axis:
     ys = jax.tree_util.tree_map(lambda y: y.swapaxes(0, axis), ys)
   return carry, ys
+
+
+def checkpoint(fun, **cp_kwargs):
+  static = cp_kwargs.get('static_argnums', tuple())
+  static = static if isinstance(static, tuple) else (static,)
+  static = tuple(x + 1 for x in static)
+  cp_kwargs['static_argnums'] = static
+
+  fun = pure(fun, nested=True)
+
+  @functools.partial(jax.checkpoint, **cp_kwargs)
+  def inner(*args, **kwargs):
+    state, output = fun(*args, **kwargs)
+    changes = {k: v for k, v in state.items() if k in fun.changed}
+    return changes, output
+
+  @jax.named_scope('checkpoint')
+  def outer(*args, **kwargs):
+    fun.changed = _prerun(fun, *args, **kwargs)
+    changes, output = inner(
+        dict(context()), *args, seed=seed(None, True), **kwargs)
+    if context().modify:
+      context().update(changes)
+    return output
+
+  return outer
 
 
 @jax.named_scope('prerun')
