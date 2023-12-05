@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.3.0'
+__version__ = '2.3.1'
 
 
 ###############################################################################
@@ -45,7 +45,12 @@ class Context(dict):
 
   def __getitem__(self, key):
     self.accessed.add(key)
-    return super().__getitem__(key)
+    try:
+      return super().__getitem__(key)
+    except KeyError:
+      raise KeyError(
+          f"Trying to access state key '{key}' that does not exist in context "
+          f'create={self.create} modify={self.modify} ignore={self.ignore}.')
 
   def __setitem__(self, key, value):
     if key in self:
@@ -486,19 +491,22 @@ class Module(object, metaclass=ModuleMeta):
     path = self.path + '/' + name
     if name in self._submodules:
       return self._submodules[name]
-    if path not in context():
-      ctor, *args = args
-      if 'name' in inspect.signature(ctor).parameters:
-        kwargs['name'] = name
-      value = ctor(*args, **kwargs)
-      flat, _ = jax.tree_util.tree_flatten(value)
-      if all(isinstance(x, jnp.ndarray) for x in flat):
-        context()[path] = value
-      else:
-        self._submodules[name] = value
-    # Look up the value again to make sure we are registering it as an accessed
-    # key in the context.
-    return context()[path]
+    if path in context():
+      return context()[path]
+    ctor, *args = args
+    if 'name' in inspect.signature(ctor).parameters:
+      kwargs['name'] = name
+    value = ctor(*args, **kwargs)
+    # We support trees of arrays for easier integration with other libraries.
+    flat = jax.tree_util.tree_leaves(value)
+    if all(isinstance(x, jnp.ndarray) for x in flat):
+      context()[path] = value
+      # Look up the value again to make sure we are registering it as an
+      # accessed key in the context.
+      return context()[path]
+    else:
+      self._submodules[name] = value
+      return value
 
   def put(self, *args):
     """Update or create state entries that belong to this module. The arguments
