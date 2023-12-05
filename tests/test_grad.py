@@ -85,3 +85,26 @@ class TestGrad:
     for index in range(1, 4):
       state, value = fun(state, jnp.array(2.0), create=True)
       assert value == index
+
+  def test_nested_create(self):
+    def program(a, b):
+      b = jnp.float32(b)
+      def forward(a, b):
+        def truefn(b):
+          w = nj.Variable(jnp.array, 1.0, name='w')
+          return w.read()
+        def falsefn(b):
+          return b
+        return nj.cond(a, truefn, falsefn, b)
+      return nj.grad(forward, ['w/value'])(a, b)
+    state = nj.init(program)({}, False, 0.0)
+    assert state == {'w/value': 1.0}
+    fun = jax.jit(nj.pure(program))
+    _, (y, ws, dw) = fun(state, True, -12)
+    assert y == 1
+    assert ws == {'w/value': 1}
+    assert dw == {'w/value': 1}
+    _, (y, ws, dw) = fun(state, False, 42)
+    assert y == 42
+    assert ws == {'w/value': 1}
+    assert dw == {'w/value': 0}

@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.2.0'
+__version__ = '2.3.0'
 
 
 ###############################################################################
@@ -26,7 +26,8 @@ CONTEXT = {}
 
 class Context(dict):
 
-  def __init__(self, entries, seed, create, modify, ignore, reserve, name):
+  def __init__(
+      self, entries, seed, create, modify, ignore, reserve, name):
     super().__init__(entries)
     self.create = create   # Allow creating new state entries.
     self.modify = modify   # Allow modifying existing state entries.
@@ -34,15 +35,23 @@ class Context(dict):
     self.seed = seed
     self.reserve = reserve
     self.name = name
-    self.modified = set()  # Keys created, modified, or attempted to modify.
+    self.accessed = set()  # Keys accessed for reading.
+    self.created = set()   # Keys accessed for creating.
+    self.modified = set()  # Keys accessed for modifying (even if ignored).
 
   def update(self, entries):
     for key, value in dict(entries).items():
       self[key] = value
 
+  def __getitem__(self, key):
+    self.accessed.add(key)
+    return super().__getitem__(key)
+
   def __setitem__(self, key, value):
     if key in self:
       self.modified.add(key)
+    else:
+      self.created.add(key)
     if self.ignore and key in self:
       return  # Do not overwrite existing entries.
     if not self.create and key not in self:
@@ -77,8 +86,8 @@ def pure(fun, nested=False):
     allowed to modify existing state entries.
   - `ignore=False`: Boolean indicating whether state modifications by the
     impure function will be ignored silently; useful for initialization.
-  - `track=False`: Boolean indicating whether to return the set of state
-    keys that the impure function modified or attempted to modify.
+  - `track=False`: Boolean indicating whether to return the sets of state
+    keys that the impure function attempted to read, modify, and create.
   """
   def purified(
       state, *args, seed=None, create=None, modify=None, ignore=None,
@@ -107,12 +116,17 @@ def pure(fun, nested=False):
     before = context
     try:
       name = fun.__name__
-      context = Context(state.copy(), seed, create, modify, ignore, [], name)
+      context = Context(
+          state.copy(), seed, create, modify, ignore, [], name)
       CONTEXT[threading.get_ident()] = context
       out = fun(*args, **kwargs)
       state = dict(context)
+      if before:
+        before.accessed |= context.accessed
+        before.modified |= context.modified
+        before.created |= context.created
       if track:
-        return state, out, context.modified
+        return state, out, context.accessed, context.modified, context.created
       return state, out
     finally:
       CONTEXT[threading.get_ident()] = before
@@ -189,7 +203,7 @@ def grad(fun, keys, has_aux=False):
   fun = pure(fun, nested=True)
 
   def wrapper(*args, **kwargs):
-    changed = _prerun(fun, *args, **kwargs)
+    accessed, modified = _prerun(fun, *args, **kwargs)
 
     strs = []
     for key in keys:
@@ -203,14 +217,26 @@ def grad(fun, keys, has_aux=False):
             f"Gradient key '{key}' did not match any state entries. "
             'List existing entries using print(nj.context().keys()).')
       strs += matches
+    existing = context().keys()
+    assert all(key in existing for key in strs), (strs, existing)
     x1 = {k: v for k, v in context().items() if k in strs}
     x2 = {k: v for k, v in context().items() if k not in strs}
     assert x1
 
+    for key in x1.keys():
+      if key not in accessed:
+        raise RuntimeError(
+            f"Trying to compute gradient with respect to key '{key}' "
+            'but the differentiated function does not access it.\n'
+            f'Accessed keys: {list(accessed)}\n'
+            f'Gradient keys: {list(strs)}')
+    x1 = {k: v for k, v in x1.items() if k in accessed}
+    x2 = {k: v for k, v in x2.items() if k in accessed}
+
     def forward(x1, x2, *args, **kwargs):
       before = {**x1, **x2}
       state, (y, aux) = fun(before, *args, create=False, **kwargs)
-      changes = {k: v for k, v in state.items() if k in changed}
+      changes = {k: v for k, v in state.items() if k in modified}
       return y, (changes, aux)
     backward = jax.value_and_grad(forward, has_aux=True)
 
@@ -227,23 +253,25 @@ def cond(pred, true_fun, false_fun, *operands):
   true_fun = pure(true_fun, nested=True)
   false_fun = pure(false_fun, nested=True)
 
-  changed = set()
-  changed |= _prerun(true_fun, *operands)
-  changed |= _prerun(false_fun, *operands)
+  accessed1, modified1 = _prerun(true_fun, *operands)
+  accessed2, modified2 = _prerun(false_fun, *operands)
+  accessed = accessed1 | accessed2
+  modified = modified1 | modified2
 
   def true_fun_wrapper(state, seed1, seed2, *args):
     state, outs = true_fun(state, *args, seed=seed1)
-    changes = {k: v for k, v in state.items() if k in changed}
+    changes = {k: v for k, v in state.items() if k in modified}
     return changes, outs
 
   def false_fun_wrapper(state, seed1, seed2, *args):
     state, outs = false_fun(state, *args, seed=seed2)
-    changes = {k: v for k, v in state.items() if k in changed}
+    changes = {k: v for k, v in state.items() if k in modified}
     return changes, outs
 
+  needed = {k: v for k, v in context().items() if k in accessed}
   changes, out = jax.lax.cond(
       pred, true_fun_wrapper, false_fun_wrapper,
-      dict(context()), *seed(2, True), *operands)
+      needed, *seed(2, True), *operands)
   if context().modify:
     context().update(changes)
   return out
@@ -255,17 +283,20 @@ def scan(fun, carry, xs, reverse=False, unroll=1, axis=0):
     xs = jax.tree_util.tree_map(lambda x: x.swapaxes(0, axis), xs)
 
   fun = pure(fun, nested=True)
-  changed = _prerun(fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
-  outer = context()
-  changing = {k: v for k, v in outer.items() if k in changed}
-  unchanging = {k: v for k, v in outer.items() if k not in changed}
+  accessed, modified = _prerun(
+      fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
+
+  changing = {k: v for k, v in context().items() if k in modified}
+  unchanging = {
+      k: v for k, v in context().items()
+      if k in accessed and k not in modified}
 
   def inner(carry, x):
     carry, changing = carry
     x, seed = x
     state = {**unchanging, **changing}
     state, (carry, y) = fun(state, carry, x, create=False, seed=seed)
-    changing = {k: v for k, v in state.items() if k in changed}
+    changing = {k: v for k, v in state.items() if k in modified}
     return (carry, changing), y
 
   length = len(jax.tree_util.tree_leaves(xs)[0])
@@ -287,19 +318,20 @@ def checkpoint(fun, **cp_kwargs):
   static = tuple(x + 1 for x in static)
   cp_kwargs['static_argnums'] = static
 
+  accessed, modified = [None], [None]
   fun = pure(fun, nested=True)
 
   @functools.partial(jax.checkpoint, **cp_kwargs)
   def inner(*args, **kwargs):
     state, output = fun(*args, **kwargs)
-    changes = {k: v for k, v in state.items() if k in fun.changed}
+    changes = {k: v for k, v in state.items() if k in modified[0]}
     return changes, output
 
   @jax.named_scope('checkpoint')
   def outer(*args, **kwargs):
-    fun.changed = _prerun(fun, *args, **kwargs)
-    changes, output = inner(
-        dict(context()), *args, seed=seed(None, True), **kwargs)
+    accessed[0], modified[0] = _prerun(fun, *args, **kwargs)
+    needed = {k: v for k, v in context().items() if k in accessed[0]}
+    changes, output = inner(needed, *args, seed=seed(None, True), **kwargs)
     if context().modify:
       context().update(changes)
     return output
@@ -311,12 +343,13 @@ def checkpoint(fun, **cp_kwargs):
 def _prerun(fun, *args, **kwargs):
   if not context().modify and not context().create:
     return set()
-  state, output, modified = fun(
+  state, output, accessed, modified, created = fun(
       dict(context()), *args, ignore=True, track=True,
       seed=seed(None, True), **kwargs)
   del output
-  context().update(state)
-  return modified
+  creations = {k: v for k, v in state.items() if k in created}
+  context().update(creations)
+  return accessed, modified
 
 
 ###############################################################################
@@ -453,18 +486,19 @@ class Module(object, metaclass=ModuleMeta):
     path = self.path + '/' + name
     if name in self._submodules:
       return self._submodules[name]
-    if path in context():
-      return context()[path]
-    ctor, *args = args
-    if 'name' in inspect.signature(ctor).parameters:
-      kwargs['name'] = name
-    value = ctor(*args, **kwargs)
-    flat, _ = jax.tree_util.tree_flatten(value)
-    if all(isinstance(x, jnp.ndarray) for x in flat):
-      context()[path] = value
-    else:
-      self._submodules[name] = value
-    return value
+    if path not in context():
+      ctor, *args = args
+      if 'name' in inspect.signature(ctor).parameters:
+        kwargs['name'] = name
+      value = ctor(*args, **kwargs)
+      flat, _ = jax.tree_util.tree_flatten(value)
+      if all(isinstance(x, jnp.ndarray) for x in flat):
+        context()[path] = value
+      else:
+        self._submodules[name] = value
+    # Look up the value again to make sure we are registering it as an accessed
+    # key in the context.
+    return context()[path]
 
   def put(self, *args):
     """Update or create state entries that belong to this module. The arguments
