@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.3.1'
+__version__ = '2.3.2'
 
 
 ###############################################################################
@@ -113,14 +113,14 @@ def pure(fun, nested=False):
       ignore = ignore if ignore is not None else False
     if not isinstance(state, dict):
       raise ValueError('Must provide a dict as state.')
+    name = getattr(fun, '__name__', str(fun))
     if context and (not nested):
       raise RuntimeError(
-          f'You are trying to call pure {fun.__name__}() inside pure '
+          f'You are trying to call pure {name}() inside pure '
           f'{context.name}(). Is that intentional? If you want to nest pure '
           f'functions, use pure(..., nested=True) for the inner function.')
     before = context
     try:
-      name = fun.__name__
       context = Context(
           state.copy(), seed, create, modify, ignore, [], name)
       CONTEXT[threading.get_ident()] = context
