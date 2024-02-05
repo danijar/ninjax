@@ -1,12 +1,17 @@
-import setuptools
 import pathlib
+import re
+import setuptools
 
-import ninjax
+
+def parse_version(filename):
+  text = (pathlib.Path(__file__).parent / filename).read_text()
+  version = re.search(r"__version__ = '(.*)'", text).group(1)
+  return version
 
 
 setuptools.setup(
     name='ninjax',
-    version=ninjax.__version__,
+    version=parse_version('ninjax/ninjax.py'),
     description='Flexible Modules for JAX',
     url='http://github.com/danijar/ninjax',
     long_description=pathlib.Path('README.md').read_text(),
