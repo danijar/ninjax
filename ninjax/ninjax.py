@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.3.3'
+__version__ = '2.3.4'
 
 
 ###############################################################################
@@ -204,7 +204,7 @@ def grad(fun, keys, has_aux=False):
   applicable auxiliary outputs of the function."""
   keys = keys if hasattr(keys, '__len__') else (keys,)
   if not has_aux:
-    fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, *kwargs), {})
+    fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, **kwargs), {})
   fun = pure(fun, nested=True)
 
   def wrapper(*args, **kwargs):
