@@ -2,40 +2,38 @@
 
 # 🥷  Ninjax: Flexible Modules for JAX
 
-Ninjax is a general module system for [JAX][jax]. It gives the user complete
-and transparent control over updating the state of each module, bringing the
-flexibility of PyTorch and TensorFlow to JAX. Moreover, Ninjax makes it easy to
-mix and match modules from different libraries, such as [Flax][flax] and
-[Haiku][flax].
+Ninjax is a general and practical module system for [JAX][jax]. It gives users
+full and transparent control over updating the state of each module, bringing
+flexibility to JAX and enabling new use cases.
+
+## Overview
+
+Ninjax provides a simple and general `nj.Module` class.
+
+- Modules can store state for things like model parameters, Adam momentum
+  buffer, BatchNorm statistics, recurrent state, etc.
+
+- Modules can read and write their state entries. For example, this allows
+  modules to have train methods, because they can update their parameters from
+  the inside.
+
+- Any method can initialize, read, and write state entries. This avoids the
+  need for a special `build()` method or `@compact` decorator used in Flax.
+
+- Ninjax makes it easy to mix and match modules from different libraries, such
+  as [Flax][flax] and [Haiku][flax].
+
+- Instead of PyTrees, Ninjax state is a flat `dict` that maps
+  string keys like `/net/layer1/weights` to `jnp.array`s. This makes it easy
+  to iterate over, modify, and save or load state.
+
+- Modules can specify typed hyperparameters using the [dataclass][dataclass]
+  syntax.
 
 [jax]: https://github.com/google/jax
 [flax]: https://github.com/google/flax
 [haiku]: https://github.com/deepmind/dm-haiku
-
-## Motivation
-
-Existing deep learning libraries for JAX provide modules, but those modules
-only specify neural networks and cannot easily implement training logic.
-Orchestrating training all in one place, outside of the modules, is fine for
-simple code bases. But it becomes a problem when there are many modules with
-their own training logic and optimizers.
-
-Ninjax solves this problem by giving each `nj.Module` full read and write
-access to its state. This means modules can have train functions to
-implement custom training logic, and call each other's train functions. Ninjax
-is intended to be used with one or more neural network libraries, such as
-[Haiku][haiku] and [Flax][flax].
-
-The main differences to existing deep learning libraries are:
-
-- Ninjax does not need separate `apply()`/`init()` functions. Instead, the
-  first function call creates variables automatically.
-- Ninjax lets you access and update model parameters inside of impure
-  functions, so modules can handle their own optimizers and update logic.
-- Natural support for modules with multiple functions without need for
-  Flax's `setup()` function or Haiku's `hk.multi_transform()`.
-- Ninjax' flexible state handling makes it trivial to mix and match
-  modules from other deep learning libraries in your models.
+[dataclass]: https://docs.python.org/3/library/dataclasses.html
 
 ## Installation
 
@@ -142,7 +140,7 @@ class Module(nj.Module):
 ### How can I update state entries?
 
 To update the state entries of a module, use `self.put(name, value)` for
-individual entries of `self.putm(mapping)` to update multiple values:
+individual entries of `self.put(mapping)` to update multiple values:
 
 ```python3
 class Module(nj.Module):
@@ -153,7 +151,7 @@ class Module(nj.Module):
     print(self.get('counter'))  # 1
     state = self.getm()
     state['counter'] += 1
-    self.putm(state)
+    self.put(state)
     print(self.getm()['counter'])  # 2
     print(self.get('counter'))  # 2
 ```

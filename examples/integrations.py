@@ -35,9 +35,13 @@ def main():
   y = jnp.ones((16, 4), jnp.float32)
   model = Module(4, name='module')
   state = nj.init(model.train)({}, x, y, seed=0)
+
+  for k, v in state.items():
+    print(k, v.dtype, v.shape)
+
   train = jax.jit(nj.pure(model.train))
-  for step in range(5):
-    state, loss = train(state, x, y)
+  for i in range(5):
+    state, loss = train(state, x, y, seed=i)
     print('Loss:', float(loss))
 
 

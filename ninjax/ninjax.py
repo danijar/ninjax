@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.3.4'
+__version__ = '2.4.0'
 
 
 ###############################################################################
@@ -508,7 +508,7 @@ class Module(object, metaclass=ModuleMeta):
       self._submodules[name] = value
       return value
 
-  def put(self, *args):
+  def put(self, *args, prefix=False):
     """Update or create state entries that belong to this module. The arguments
     are either string name and value of a single state entry or a dict holding
     multiple state entries."""
@@ -518,9 +518,11 @@ class Module(object, metaclass=ModuleMeta):
       return value
     assert len(args) == 1 and isinstance(args[0], dict)
     mapping = args[0]
-    prefix = self.path + '/'
+    if prefix:
+      mapping = {f'{self.path}/{k}': v for k, v in mapping.items()}
+    start = self.path + '/'
     for key in mapping:
-      if not key.startswith(prefix):
+      if not key.startswith(start):
         raise KeyError(f'Key {key} does not belong to module {self.path}.')
     context().update(mapping)
 
@@ -529,11 +531,12 @@ class Module(object, metaclass=ModuleMeta):
     pattern = re.compile(pattern)
     prefix = self.path + '/'
     results = {}
-    for key, value in context().items():
+    ctx = context()
+    for key in ctx.keys():
       if not key.startswith(prefix):
         continue
       if pattern.match(key[len(prefix):]):
-        results[key] = value
+        results[key] = ctx[key]
     if not empty_ok and not results:
       raise KeyError(f'Pattern {pattern} matched no state keys.')
     return results
@@ -558,41 +561,87 @@ class Variable(Module):
 ###############################################################################
 
 
+def flatten(tree):
+  items, treedef = jax.tree_util.tree_flatten_with_path(tree)
+  paths, values = zip(*items)
+  tostr = lambda x: re.sub(
+      r'[^a-z0-9-_/]+', '_', str(x).lower()).strip('_').replace('/_/', '')
+  strpaths = [[tostr(x) for x in path] for path in paths]
+  keys = ['/'.join(x for x in strpath if x) for strpath in strpaths]
+  if len(set(keys)) < len(keys):
+    raise ValueError(
+        'Cannot flatten PyTree to dict because paths are ambiguous '
+        'after converting them to string keys.\n'
+        'Paths: {paths}\nKeys: {keys}')
+  items = sorted(list(zip(keys, values)), key=lambda x: x[0])
+  return dict(items), treedef
+
+
+def unflatten(mapping, treedef):
+  items = sorted(list(mapping.items()), key=lambda x: x[0])
+  _, values = zip(*items)
+  return jax.tree.unflatten(treedef, values)
+
+
 def FromFlax(ctor):
+
   class FlaxModule(Module):
+
     def __init__(self, *args, **kwargs):
       self.module = ctor(*args, **kwargs)
+      self.treedef = None
+
     def __call__(self, *args, **kwargs):
-      seed_ = seed() if creating() else None
-      state = self.get('flax', self.module.init, seed_, *args, **kwargs)
+      if creating():
+        state, self.treedef = flatten(
+            self.module.init(seed(), *args, **kwargs))
+        self.put(state, prefix=True)
+      state = unflatten(self.find(), self.treedef)
       return self.module.apply(state, *args, **kwargs)
+
   return FlaxModule
 
 
 def FromHaiku(ctor):
+
   class HaikuModule(Module):
+
     def __init__(self, *args, **kwargs):
       import haiku as hk
       def net(*args_, **kwargs_):
         return ctor(*args, **kwargs)(*args_, **kwargs_)
       self.transformed = hk.transform(net)
+      self.treedef = None
+
     def __call__(self, *args, **kwargs):
-      seed_ = seed() if creating() else None
-      state = self.get('haiku', self.transformed.init, seed_, *args, **kwargs)
-      return self.transformed.apply(state, seed_, *args, **kwargs)
+      if creating():
+        state, self.treedef = flatten(
+            self.transformed.init(seed(), *args, **kwargs))
+        self.put(state, prefix=True)
+      state = unflatten(self.find(), self.treedef)
+      return self.transformed.apply(state, seed(), *args, **kwargs)
+
   return HaikuModule
 
 
 def FromOptax(ctor):
+
   class OptaxModule(Module):
+
     def __init__(self, *args, **kwargs):
       self.opt = ctor(*args, **kwargs)
+      self.treedef = None
+
     def __call__(self, loss, keys, *args, **kwargs):
       import optax
       loss, params, grads = grad(loss, keys)(*args, **kwargs)
-      optstate = self.get('state', self.opt.init, params)
-      updates, optstate = self.opt.update(grads, optstate)
-      self.put('state', optstate)
+      if creating():
+        state, self.treedef = flatten(self.opt.init(params))
+        self.put(state, prefix=True)
+      state = unflatten(self.find(), self.treedef)
+      updates, state = self.opt.update(grads, state)
+      self.put(flatten(state)[0], prefix=True)
       context().update(optax.apply_updates(params, updates))
       return loss, params, grads
+
   return OptaxModule
