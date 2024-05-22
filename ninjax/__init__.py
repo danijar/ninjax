@@ -19,6 +19,8 @@ from .ninjax import creating
 from .ninjax import scope
 
 # Integrations
+from .ninjax import flatten
+from .ninjax import unflatten
 from .ninjax import FromHaiku
 from .ninjax import FromFlax
 from .ninjax import FromOptax
