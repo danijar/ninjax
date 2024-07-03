@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.4.1'
+__version__ = '2.4.2'
 
 
 ###############################################################################
@@ -583,7 +583,7 @@ def unflatten(mapping, treedef):
   return jax.tree.unflatten(treedef, values)
 
 
-def FromFlax(ctor):
+def FromFlax(ctor, postinit=None):
 
   class FlaxModule(Module):
 
@@ -593,8 +593,9 @@ def FromFlax(ctor):
 
     def __call__(self, *args, **kwargs):
       if creating():
-        state, self.treedef = flatten(
-            self.module.init(seed(), *args, **kwargs))
+        state = self.module.init(seed(), *args, **kwargs)
+        state = postinit(state) if postinit else state
+        state, self.treedef = flatten(state)
         self.put(state, prefix=True)
       state = unflatten(self.find(), self.treedef)
       return self.module.apply(state, *args, **kwargs)
