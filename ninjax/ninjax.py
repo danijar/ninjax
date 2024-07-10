@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.4.2'
+__version__ = '2.4.3'
 
 
 ###############################################################################
@@ -283,13 +283,13 @@ def cond(pred, true_fun, false_fun, *operands):
 
 
 @jax.named_scope('scan')
-def scan(fun, carry, xs, reverse=False, unroll=1, axis=0):
+def scan(fun, carry, xs, length=None, reverse=False, unroll=1, axis=0):
   if axis:
-    xs = jax.tree_util.tree_map(lambda x: x.swapaxes(0, axis), xs)
+    xs = jax.tree.map(lambda x: x.swapaxes(0, axis), xs)
 
   fun = pure(fun, nested=True)
   accessed, modified = _prerun(
-      fun, carry, jax.tree_util.tree_map(lambda x: x[0], xs))
+      fun, carry, jax.tree.map(lambda x: x[0], xs))
 
   changing = {k: v for k, v in context().items() if k in modified}
   unchanging = {
@@ -304,7 +304,8 @@ def scan(fun, carry, xs, reverse=False, unroll=1, axis=0):
     changing = {k: v for k, v in state.items() if k in modified}
     return (carry, changing), y
 
-  length = len(jax.tree_util.tree_leaves(xs)[0])
+  if length is None:
+    length = len(jax.tree.leaves(xs)[0])
   seeds = seed(length, True)
   (carry, changes), ys = jax.lax.scan(
       inner, (carry, changing), (xs, seeds), length, reverse, unroll)
@@ -313,7 +314,7 @@ def scan(fun, carry, xs, reverse=False, unroll=1, axis=0):
     context().update(changes)
 
   if axis:
-    ys = jax.tree_util.tree_map(lambda y: y.swapaxes(0, axis), ys)
+    ys = jax.tree.map(lambda y: y.swapaxes(0, axis), ys)
   return carry, ys
 
 
@@ -498,7 +499,7 @@ class Module(object, metaclass=ModuleMeta):
       kwargs['name'] = name
     value = ctor(*args, **kwargs)
     # We support trees of arrays for easier integration with other libraries.
-    flat = jax.tree_util.tree_leaves(value)
+    flat = jax.tree.leaves(value)
     if all(isinstance(x, jnp.ndarray) for x in flat):
       context()[path] = value
       # Look up the value again to make sure we are registering it as an
