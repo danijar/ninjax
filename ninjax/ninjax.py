@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.4.3'
+__version__ = '2.5.0'
 
 
 ###############################################################################
@@ -415,7 +415,7 @@ class ModuleMeta(type):
       elif inspect.isfunction(value):
         method_names.append(key)
     cls = super(ModuleMeta, mcs).__new__(mcs, name, bases, clsdict)
-    cls.__field_defaults = {
+    cls.__defaults = {
         k: getattr(cls, k) for k, v in cls.__annotations__.items()
         if hasattr(cls, k)}
     for key, value in cls.__annotations__.items():
@@ -440,8 +440,8 @@ class ModuleMeta(type):
     for key, typ in cls.__annotations__.items():
       if key in kwargs:
         value = kwargs.pop(key)
-      elif key in cls.__field_defaults:
-        value = cls.__field_defaults[key]
+      elif key in cls.__defaults:
+        value = cls.__defaults[key]
       else:
         raise TypeError(
             f"Pass a keyword argument for field '{key}' or define a default.")
@@ -458,6 +458,10 @@ class ModuleMeta(type):
     init = _scope_method(cls.__init__)
     init(obj, *args, **kwargs)
     return obj
+
+  @property
+  def defaults(self):
+    return self.__defaults
 
 
 def _scope_method(method):
