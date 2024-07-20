@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.5.0'
+__version__ = '2.5.1'
 
 
 ###############################################################################
@@ -415,6 +415,12 @@ class ModuleMeta(type):
       elif inspect.isfunction(value):
         method_names.append(key)
     cls = super(ModuleMeta, mcs).__new__(mcs, name, bases, clsdict)
+    for name, typ in cls.__annotations__.items():
+      try:
+        isinstance(0, typ)
+      except Exception:
+        raise ValueError(
+            f"Annotation '{typ}' for field '{key}' is not a valid type.")
     cls.__defaults = {
         k: getattr(cls, k) for k, v in cls.__annotations__.items()
         if hasattr(cls, k)}
@@ -444,7 +450,7 @@ class ModuleMeta(type):
         value = cls.__defaults[key]
       else:
         raise TypeError(
-            f"Pass a keyword argument for field '{key}' or define a default.")
+            f"Pass a keyword arg for field '{key}' or define a default.")
       if typ is not None and not isinstance(value, typ):
         raise TypeError(
             f"Value '{value}' for field '{key}' is not of type "
