@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.5.2'
+__version__ = '2.5.3'
 
 
 ###############################################################################
@@ -426,10 +426,12 @@ class ModuleMeta(type):
         if hasattr(cls, k)}
     for key, value in cls.__annotations__.items():
       setattr(cls, key, property(lambda self, key=key: self.__fields[key]))
-    for method_name in method_names:
-      method = getattr(cls, method_name)
+    for name in method_names:
+      if name in cls.__defaults:
+        continue
+      method = getattr(cls, name)
       method = _scope_method(method)
-      setattr(cls, method_name, method)
+      setattr(cls, name, method)
     return cls
 
   def __call__(cls, *args, name=None, **kwargs):
@@ -482,6 +484,7 @@ def _scope_method(method):
     with scope(self._path, absolute=True):
       with jax.named_scope(self._path.split('/')[-1]):
         return method(self, *args, **kwargs)
+  wrapper._method = method  # Debug info.
   return wrapper
 
 
