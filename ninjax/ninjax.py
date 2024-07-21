@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.5.1'
+__version__ = '2.5.2'
 
 
 ###############################################################################
@@ -462,7 +462,13 @@ class ModuleMeta(type):
       obj._path = path
     obj._submodules = {}
     init = _scope_method(cls.__init__)
-    init(obj, *args, **kwargs)
+    try:
+      init(obj, *args, **kwargs)
+    except TypeError:
+      if kwargs:
+        keys = ', '.join(sorted(kwargs.keys()))
+        print(f'Keyword arguments not matched to class fields: {keys}')
+      raise
     return obj
 
   @property
