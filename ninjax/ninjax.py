@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.5.3'
+__version__ = '2.5.4'
 
 
 ###############################################################################
@@ -349,6 +349,9 @@ def checkpoint(fun, **cp_kwargs):
 def _prerun(fun, *args, **kwargs):
   if not context().modify and not context().create:
     return set()
+  # Copy container structure so modifications inside the user function
+  # (e.g. popping from a dict) are not applied during prerun.
+  args, kwargs = jax.tree.map(lambda x: x, (args, kwargs))
   state, output, accessed, modified, created = fun(
       dict(context()), *args, ignore=True, track=True,
       seed=seed(None, True), **kwargs)
