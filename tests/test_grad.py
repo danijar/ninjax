@@ -18,19 +18,20 @@ class TestGrad:
     assert dx['w/value'] == 2.0
     assert aux == 42
 
-  def test_create_state_by_keys(self):
+  def test_create_state_wrt_names(self):
     w = nj.Variable(jnp.array, 0.5, name='w')
     def program(x):
       if nj.creating():
         w.read()  # Create state entry.
-      return nj.grad(lambda x: x * w.read(), w.find())(x)
+      wrt = {w.path + '/' + k: v for k, v in w.values.items()}
+      return nj.grad(lambda x: x * w.read(), wrt)(x)
     state, (y, x, dx) = nj.pure(program)({}, jnp.array(2.0), create=True)
     assert y == jnp.array(1.0)
     assert state['w/value'] == jnp.array(0.5)
     assert x['w/value'] == jnp.array(0.5)
     assert dx['w/value'] == jnp.array(2.0)
 
-  def test_create_state_by_modules(self):
+  def test_create_state_wrt_modules(self):
     w = nj.Variable(jnp.array, 0.5, name='w')
     def program(x):
       return nj.grad(lambda x: x * w.read(), [w])(x)

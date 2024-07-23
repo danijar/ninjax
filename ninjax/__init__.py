@@ -3,8 +3,8 @@ from .ninjax import __version__
 # Basics
 from .ninjax import Module
 from .ninjax import Variable
-from .ninjax import pure
 from .ninjax import init
+from .ninjax import pure
 from .ninjax import seed
 
 # Transforms

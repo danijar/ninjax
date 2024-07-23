@@ -7,7 +7,14 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '2.5.4'
+__version__ = '3.0.0'
+
+
+def add_note(e, note):
+  if hasattr(e, 'add_note'):
+    e.add_note(note)
+  else:
+    print(note)
 
 
 ###############################################################################
@@ -197,12 +204,12 @@ def creating():
 
 
 @jax.named_scope('grad')
-def grad(fun, keys, has_aux=False):
+def grad(fun, targets, has_aux=False):
   """Compute the gradient of an impure function with respect to the specified
   state entries or modules. The transformed function returns a tuple containing
   the computed value, selected state entries, their gradients, and if
   applicable auxiliary outputs of the function."""
-  keys = keys if hasattr(keys, '__len__') else (keys,)
+  targets = targets if hasattr(targets, '__len__') else (targets,)
   if not has_aux:
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, **kwargs), {})
   fun = pure(fun, nested=True)
@@ -211,22 +218,27 @@ def grad(fun, keys, has_aux=False):
     accessed, modified = _prerun(fun, *args, **kwargs)
 
     strs = []
-    for key in keys:
-      if isinstance(key, Module):
-        matches = key.find()
-      if isinstance(key, str):
-        pattern = re.compile(f'^{key}(/.*|$)')
+    for target in targets:
+      if isinstance(target, Module):
+        prefix = target.path + '/'
+        matches = {k: v for k, v in context().items() if k.startswith(prefix)}
+      if isinstance(target, str):
+        pattern = re.compile(f'^{target}(/.*|$)')
         matches = [k for k in context() if pattern.match(k)]
       if not matches:
+        existing = ', '.join(context().keys())
         raise KeyError(
-            f"Gradient key '{key}' did not match any state entries. "
-            'List existing entries using print(nj.context().keys()).')
+            f"Gradient target '{target}' did not match any state entries. " +
+            f'Existing state entries: {existing}')
       strs += matches
     existing = context().keys()
     assert all(key in existing for key in strs), (strs, existing)
     x1 = {k: v for k, v in context().items() if k in strs}
     x2 = {k: v for k, v in context().items() if k not in strs}
-    assert x1
+    if not x1:
+      raise ValueError(
+          'No inputs to differentiate with respect to. ' +
+          f"User provided targets: '{targets}'")
 
     for key in x1.keys():
       if key not in accessed:
@@ -379,23 +391,32 @@ def scope(name, absolute=False):
         'Purify stateful functions with fn = pure(fn) before running them.')
   outside = SCOPE
   if absolute:
+    validate(name)
     SCOPE = name
   elif SCOPE == '':
     SCOPE = name
   else:
+    validate(name, single=True)
     SCOPE = outside + '/' + name
   try:
     yield SCOPE
   except Exception as e:
     if not hasattr(e, '_njscope'):
       e._njscope = SCOPE
-      if hasattr(e, 'add_note'):
-        e.add_note(f"This happened inside Ninjax scope '{SCOPE}'.")
-      else:
-        print(f"Exception happened inside Ninjax scope '{SCOPE}'.")
+      add_note(e, f"Exception happened inside Ninjax scope '{SCOPE}'.")
     raise
   finally:
     SCOPE = outside
+
+
+def validate(path, single=False):
+  names = path.split('/')
+  assert not single or len(names) == 1, (path, names)
+  for name in names:
+    assert name, ('Name cannot be empty', path, name)
+    assert '{' not in name, ('Did you forget to format a string?', path, name)
+    assert re.match(r'^[A-Za-z0-9_]+$', name), (
+        'Only letters, numbers, and underscores allowed in names', path, name)
 
 
 class ModuleMeta(type):
@@ -443,10 +464,7 @@ class ModuleMeta(type):
     if not isinstance(name, str):
       raise TypeError(
           "Please provide a module name via Module(..., name='example').")
-    if not re.match(r'^[A-Za-z0-9_]+$', name):
-      raise ValueError(
-          'Only letters, numbers, and underscores are allowed in scope names; '
-          f'got: {name}')
+    validate(name, single=True)
     fields = {}
     for key, typ in cls.__annotations__.items():
       if key in kwargs:
@@ -469,10 +487,10 @@ class ModuleMeta(type):
     init = _scope_method(cls.__init__)
     try:
       init(obj, *args, **kwargs)
-    except TypeError:
+    except TypeError as e:
       if kwargs:
         keys = ', '.join(sorted(kwargs.keys()))
-        print(f'Keyword arguments not matched to class fields: {keys}')
+        add_note(e, f'Keyword arguments not matched to class fields: {keys}')
       raise
     return obj
 
@@ -508,87 +526,76 @@ class Module(object, metaclass=ModuleMeta):
     """The name of this module instance as a string."""
     return self._path.split('/')[-1]
 
-  def get(self, name, *args, **kwargs):
-    """Retrieve or create a state entry that belongs to this module."""
-    assert '{' not in name, 'Did you forget to format a string?'
-    path = self.path + '/' + name
-    if name in self._submodules:
-      return self._submodules[name]
-    if path in context():
-      return context()[path]
-    ctor, *args = args
-    if 'name' in inspect.signature(ctor).parameters:
-      kwargs['name'] = name
-    value = ctor(*args, **kwargs)
-    # We support trees of arrays for easier integration with other libraries.
-    flat = jax.tree.leaves(value)
-    if all(isinstance(x, jnp.ndarray) for x in flat):
-      context()[path] = value
-      # Look up the value again to make sure we are registering it as an
-      # accessed key in the context.
-      return context()[path]
-    else:
-      self._submodules[name] = value
-      return value
-
-  def put(self, *args, prefix=False):
-    """Update or create state entries that belong to this module. The arguments
-    are either string name and value of a single state entry or a dict holding
-    multiple state entries."""
-    if len(args) == 2:
-      name, value = args
-      self.put({self.path + '/' + name: value})
-      return value
-    assert len(args) == 1 and isinstance(args[0], dict)
-    mapping = args[0]
-    if prefix:
-      mapping = {f'{self.path}/{k}': v for k, v in mapping.items()}
-    start = self.path + '/'
-    for key in mapping:
-      if not key.startswith(start):
-        raise KeyError(f'Key {key} does not belong to module {self.path}.')
-    context().update(mapping)
-
-  def find(self, pattern=r'.*', empty_ok=False):
-    """Find the state entries of this module, optionally filtered by regex."""
-    pattern = re.compile(pattern)
-    prefix = self.path + '/'
-    results = {}
+  @property
+  def values(self):
+    p = self.path + '/'
     ctx = context()
-    for key in ctx.keys():
-      if not key.startswith(prefix):
-        continue
-      if pattern.match(key[len(prefix):]):
-        results[key] = ctx[key]
-    if not empty_ok and not results:
-      raise KeyError(f'Pattern {pattern} matched no state keys.')
-    return results
+    # Read keys individually to mark them as accessed.
+    return {k.removeprefix(p): ctx[k] for k in ctx if k.startswith(p)}
+
+  def value(self, name, make, *args, **kwargs):
+    """Define and read a state entry in the scope of this module."""
+    validate(name)
+    path = self.path + '/' + name
+    if path not in context():
+      if callable(make):
+        value = make(*args, **kwargs)
+      else:
+        assert not args and not kwargs
+        value = make
+      context()[path] = value
+    # Look up the value again to register it as accessed.
+    return context()[path]
+
+  def read(self, name):
+    """Read a state entry in the scope of this module."""
+    validate(name)
+    return context()[self.path + '/' + name]
+
+  def write(self, name, value):
+    """Update the value of a state entry in the scope of this module."""
+    validate(name)
+    path = self.path + '/' + name
+    existing = context()[path]
+    value = jnp.asarray(value, dtype=existing.dtype)
+    assert existing.shape == value.shape, (existing.shape, value.shape)
+    context()[path] = value
+    # Return value without lookup because it was provided by the user and thus
+    # has to be available in the pure function already.
+    return value
+
+  def sub(self, name, make=None, *args, **kwargs):
+    """Define and retrieve a sub module."""
+    validate(name, single=True)
+    if name not in self._submodules:
+      assert make, 'Provide constructor for submodule that does not exist.'
+      assert SCOPE.startswith(self.path), 'Must be inside the parent module.'
+      module = make(*args, **kwargs, name=name)
+      self._submodules[name] = module
+    return self._submodules[name]
 
 
 class Variable(Module):
 
-  def __init__(self, ctor, *args, **kwargs):
-    self.ctor = ctor
-    self.args = args
-    self.kwargs = kwargs
+  def __init__(self, make, *args, **kwargs):
+    self.make = functools.partial(make, *args, **kwargs)
 
   def read(self):
-    return self.get('value', self.ctor, *self.args, **self.kwargs)
+    if not self.values:
+      self.value('value', self.make)
+    return super().read('value')
 
   def write(self, value):
-    return self.put('value', value)
-
-
-###############################################################################
-# Integrations
-###############################################################################
+    if not self.values:
+      self.value('value', self.make)
+    return super().write('value', value)
 
 
 def flatten(tree):
   items, treedef = jax.tree_util.tree_flatten_with_path(tree)
   paths, values = zip(*items)
   tostr = lambda x: re.sub(
-      r'[^a-z0-9-_/]+', '_', str(x).lower()).strip('_').replace('/_/', '')
+      r'[^a-z0-9-_/]+', '_', str(x).lower()).replace('_/', '').replace('_', '')
   strpaths = [[tostr(x) for x in path] for path in paths]
   keys = ['/'.join(x for x in strpath if x) for strpath in strpaths]
   if len(set(keys)) < len(keys):
@@ -602,70 +609,87 @@ def flatten(tree):
 
 def unflatten(mapping, treedef):
   items = sorted(list(mapping.items()), key=lambda x: x[0])
-  _, values = zip(*items)
+  _, values = zip(*items) if items else ([], [])
   return jax.tree.unflatten(treedef, values)
 
 
-def FromFlax(ctor, postinit=None):
+###############################################################################
+# Integrations
+###############################################################################
+
+
+def FromFlax(make, postinit=None):
 
   class FlaxModule(Module):
 
     def __init__(self, *args, **kwargs):
-      self.module = ctor(*args, **kwargs)
+      self.module = make(*args, **kwargs)
       self.treedef = None
 
     def __call__(self, *args, **kwargs):
-      if creating():
-        state = self.module.init(seed(), *args, **kwargs)
-        state = postinit(state) if postinit else state
-        state, self.treedef = flatten(state)
-        self.put(state, prefix=True)
-      state = unflatten(self.find(), self.treedef)
-      return self.module.apply(state, *args, **kwargs)
+      if kwargs.get('mutable', False):
+        raise NotImplementedError
+      params = self._params(*args, **kwargs)
+      return self.module.apply(params, *args, **kwargs)
+
+    def _params(self, *args, **kwargs):
+      if self.treedef is None:
+        params = self.module.init(seed(), *args, **kwargs)
+        params = postinit(params) if postinit else params
+        mapping, self.treedef = flatten(params)
+        [self.value(k, v) for k, v in mapping.items()]
+      return unflatten(self.values, self.treedef)
 
   return FlaxModule
 
 
-def FromHaiku(ctor):
+def FromHaiku(make):
 
   class HaikuModule(Module):
 
     def __init__(self, *args, **kwargs):
       import haiku as hk
-      def net(*args_, **kwargs_):
-        return ctor(*args, **kwargs)(*args_, **kwargs_)
+      def net(*a, **k):
+        return make(*args, **kwargs)(*a, **k)
       self.transformed = hk.transform(net)
       self.treedef = None
 
     def __call__(self, *args, **kwargs):
-      if creating():
-        state, self.treedef = flatten(
-            self.transformed.init(seed(), *args, **kwargs))
-        self.put(state, prefix=True)
-      state = unflatten(self.find(), self.treedef)
-      return self.transformed.apply(state, seed(), *args, **kwargs)
+      params = self._params(*args, **kwargs)
+      return self.transformed.apply(params, seed(), *args, **kwargs)
+
+    def _params(self, *args, **kwargs):
+      if self.treedef is None:
+        params = self.transformed.init(seed(), *args, **kwargs)
+        mapping, self.treedef = flatten(params)
+        [self.value(k, v) for k, v in mapping.items()]
+      return unflatten(self.values, self.treedef)
 
   return HaikuModule
 
 
-def FromOptax(ctor):
+def FromOptax(make):
 
   class OptaxModule(Module):
 
     def __init__(self, *args, **kwargs):
-      self.opt = ctor(*args, **kwargs)
+      self.opt = make(*args, **kwargs)
       self.treedef = None
 
     def __call__(self, loss, keys, *args, **kwargs):
       import optax
       loss, params, grads = grad(loss, keys)(*args, **kwargs)
-      if creating():
-        state, self.treedef = flatten(self.opt.init(params))
-        self.put(state, prefix=True)
-      state = unflatten(self.find(), self.treedef)
-      updates, state = self.opt.update(grads, state)
-      self.put(flatten(state)[0], prefix=True)
+      updates = self.update(grads, params)
       context().update(optax.apply_updates(params, updates))
       return loss, params, grads
+
+    def update(self, grads, params):
+      if self.treedef is None:
+        mapping, self.treedef = flatten(self.opt.init(params))
+        [self.value(k, v) for k, v in mapping.items()]
+      state = unflatten(self.values, self.treedef)
+      updates, state = self.opt.update(grads, state)
+      [self.write(k, v) for k, v in flatten(state)[0].items()]
+      return updates
 
   return OptaxModule

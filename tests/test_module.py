@@ -9,9 +9,9 @@ class TestModule:
       def __init__(self):
         self.bar = nj.Variable(jnp.float32, 5, name='bar')
       def method(self):
-        baz = self.get('baz', jnp.float32, 3)
+        baz = self.value('baz', jnp.float32, 3)
         result = self.bar.read() + baz
-        self.put('baz', result)
+        self.write('baz', result)
         return result
     params = {}
     foo = Foo(name='foo')
@@ -32,9 +32,9 @@ class TestModule:
       def __init__(self):
         self.bar = nj.Variable(jnp.float32, 5, name='bar')
       def method(self):
-        baz = self.get('baz', jnp.float32, 3)
+        baz = self.value('baz', jnp.float32, 3)
         result = self.bar.read() + baz
-        self.put('baz', result)
+        self.write('baz', result)
         return result
     params = {}
     foo = Foo(name='foo')

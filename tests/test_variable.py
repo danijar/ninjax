@@ -28,7 +28,8 @@ class TestVariable:
     state, value = nj.pure(v.read)(state, create=True)
     assert value == 1
     assert state == {'v/value': 1}
-    state, value = nj.pure(v.write)(state, 42)
+    state, _ = nj.pure(v.write)(state, 42)
+    _, value = nj.pure(v.read)(state)
     assert value == 42
     assert state == {'v/value': 42}
     state, value = nj.pure(v.read)(state)

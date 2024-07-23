@@ -1,4 +1,6 @@
-__pycache__/
-*.py[cod]
+([';:]|\]|\[)
 *.egg-info
+*.py[cod]
+.pytest_cache
+__pycache__/
 dist

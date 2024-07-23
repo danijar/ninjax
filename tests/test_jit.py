@@ -53,11 +53,11 @@ class TestJit:
     state = {}
     state = nj.init(foo)(state)
     state = nj.init(bar)(state)
-    assert state == {'v1/value': 0, 'v2/value': 0, 'v3/value': 1}
+    assert state == {'v1/value': 0, 'v2/value': 0, 'v3/value': 0}
     foo = jax.jit(nj.pure(foo))
     bar = jax.jit(nj.pure(bar))
     state = foo(state)[0]
-    assert state == {'v1/value': 1, 'v2/value': 0, 'v3/value': 1}
+    assert state == {'v1/value': 1, 'v2/value': 0, 'v3/value': 0}
     state = bar(state)[0]
     assert state == {'v1/value': 1, 'v2/value': 0, 'v3/value': 2}
     state = foo(state)[0]

@@ -77,4 +77,15 @@ class TestInit:
     state = {}
     state = nj.init(foo)(state)
     state = nj.init(bar)(state)
-    assert state == {'a/value': 0, 'b/value': 0, 'c/value': 1}
+    assert state == {'a/value': 0, 'b/value': 0, 'c/value': 0}
+
+  def test_dependent(self):
+    class Module(nj.Module):
+      def forward(self):
+        a = self.sub('a', nj.Variable, jnp.zeros, (), jnp.int32)
+        a.write(a.read() + 1)
+        b = self.sub('b', nj.Variable, a.read)
+        return b.read()
+    module = Module(name='module')
+    state = nj.init(nj.pure(module.forward))({})
+    assert state == {'module/a/value': 0, 'module/b/value': 0}
