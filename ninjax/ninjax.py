@@ -7,7 +7,7 @@ import threading
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.0.0'
+__version__ = '3.1.0'
 
 
 def add_note(e, note):
@@ -591,6 +591,28 @@ class Variable(Module):
     return super().write('value', value)
 
 
+class Tree(Module):
+
+  def __init__(self, make, *args, **kwargs):
+    self.make = functools.partial(make, *args, **kwargs)
+
+  def read(self):
+    if not self.values:
+      mapping, self.treedef = flatten(self.make())
+      [self.value(k, v) for k, v in mapping.items()]
+    return unflatten(self.values, self.treedef)
+
+  def write(self, tree):
+    if not self.values:
+      mapping, self.treedef = flatten(self.make())
+      [self.value(k, v) for k, v in mapping.items()]
+    mapping, treedef = flatten(tree)
+    assert treedef == self.treedef, (self.treedef, treedef)
+    write = super().write
+    [write(k, v) for k, v in mapping.items()]
+    return jax.tree.map(lambda x: x, tree)
+
+
 def flatten(tree):
   items, treedef = jax.tree_util.tree_flatten_with_path(tree)
   paths, values = zip(*items)
@@ -623,7 +645,11 @@ def FromFlax(make, postinit=None):
   class FlaxModule(Module):
 
     def __init__(self, *args, **kwargs):
-      self.module = make(*args, **kwargs)
+      if callable(make):
+        self.module = make(*args, **kwargs)
+      else:
+        assert not args and not kwargs
+        self.module = make
       self.treedef = None
 
     def __call__(self, *args, **kwargs):
@@ -673,7 +699,11 @@ def FromOptax(make):
   class OptaxModule(Module):
 
     def __init__(self, *args, **kwargs):
-      self.opt = make(*args, **kwargs)
+      if callable(make):
+        self.opt = make(*args, **kwargs)
+      else:
+        assert not args and not kwargs
+        self.opt = make
       self.treedef = None
 
     def __call__(self, loss, keys, *args, **kwargs):

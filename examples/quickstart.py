@@ -5,7 +5,6 @@ import ninjax as nj
 import optax
 
 Linear = nj.FromFlax(flax.linen.Dense)
-Adam = nj.FromOptax(optax.adam)
 
 
 class MyModel(nj.Module):
@@ -17,7 +16,7 @@ class MyModel(nj.Module):
     # Define submodules upfront
     self.h1 = Linear(128, name='h1')
     self.h2 = Linear(128, name='h2')
-    self.opt = Adam(self.lr, name='opt')
+    self.opt = optax.adam(self.lr)
 
   def predict(self, x):
     x = jax.nn.relu(self.h1(x))
@@ -38,9 +37,11 @@ class MyModel(nj.Module):
     wrt = [self.h1, self.h2, f'{self.path}/h3', f'{self.path}/bias']
     loss, params, grads = nj.grad(self.loss, wrt)(x, y)
     # Update weights
-    updates = self.opt.update(grads, params)
+    state = self.sub('optstate', nj.Tree, self.opt.init, params)
+    updates, new_state = self.opt.update(grads, state.read(), params)
     params = optax.apply_updates(params, updates)
     nj.context().update(params)  # Store the new params
+    state.write(new_state)       # Store new optimizer state
     return loss
 
 
