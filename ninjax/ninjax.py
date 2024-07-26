@@ -3,11 +3,13 @@ import functools
 import inspect
 import re
 import threading
+import traceback
+import types
 
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.1.0'
+__version__ = '3.2.0'
 
 
 def add_note(e, note):
@@ -15,6 +17,27 @@ def add_note(e, note):
     e.add_note(note)
   else:
     print(note)
+
+
+def hide_stacktrace(fn):
+  @functools.wraps(fn)
+  def hide_wrapper(*args, **kwargs):
+    try:
+      return fn(*args, **kwargs)
+    except Exception as e:
+      tb = e.__traceback__
+      filtered = None
+      frames = list(traceback.walk_tb(tb))
+      for f, lineno in reversed(frames):
+        if f.f_code.co_filename == __file__:
+          if f.f_code.co_name == 'hide_wrapper':
+            continue
+          if jax.config.jax_traceback_filtering != 'off':
+            continue
+        filtered = types.TracebackType(filtered, f, f.f_lasti, lineno)
+      e.with_traceback(filtered)
+      raise e
+  return hide_wrapper
 
 
 ###############################################################################
@@ -101,6 +124,7 @@ def pure(fun, nested=False):
   - `track=False`: Boolean indicating whether to return the sets of state
     keys that the impure function attempted to read, modify, and create.
   """
+  @hide_stacktrace
   def purified(
       state, *args, seed=None, create=None, modify=None, ignore=None,
       track=False, **kwargs):
@@ -162,6 +186,7 @@ def init(fun, **jit_kwargs):
   the actual computation of the function."""
   if not getattr(fun, '_is_pure', False):
     fun = pure(fun)
+  @hide_stacktrace
   def wrapper(*args, **kwargs):
     state, out = fun(*args, create=True, modify=True, ignore=True, **kwargs)
     del out
@@ -214,6 +239,7 @@ def grad(fun, targets, has_aux=False):
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, **kwargs), {})
   fun = pure(fun, nested=True)
 
+  @hide_stacktrace
   def wrapper(*args, **kwargs):
     accessed, modified = _prerun(fun, *args, **kwargs)
 
@@ -445,13 +471,13 @@ class ModuleMeta(type):
       except Exception:
         raise ValueError(
             f"Annotation '{typ}' for field '{key}' is not a valid type.")
-    cls.__defaults = {
+    cls._defaults = {
         k: getattr(cls, k) for k, v in cls.__annotations__.items()
         if hasattr(cls, k)}
     for key, value in cls.__annotations__.items():
-      setattr(cls, key, property(lambda self, key=key: self.__fields[key]))
+      setattr(cls, key, property(lambda self, key=key: self._fields[key]))
     for name in method_names:
-      if name in cls.__defaults:
+      if name in cls._defaults:
         continue
       method = getattr(cls, name)
       method = _scope_method(method)
@@ -469,8 +495,8 @@ class ModuleMeta(type):
     for key, typ in cls.__annotations__.items():
       if key in kwargs:
         value = kwargs.pop(key)
-      elif key in cls.__defaults:
-        value = cls.__defaults[key]
+      elif key in cls._defaults:
+        value = cls._defaults[key]
       else:
         raise TypeError(
             f"Pass a keyword arg for field '{key}' or define a default.")
@@ -480,7 +506,7 @@ class ModuleMeta(type):
             f"'{typ.__name__}'.")
       fields[key] = value
     obj = cls.__new__(cls)
-    obj.__fields = fields
+    obj._fields = fields
     with scope(name) as path:
       obj._path = path
     obj._submodules = {}
@@ -494,12 +520,9 @@ class ModuleMeta(type):
       raise
     return obj
 
-  @property
-  def defaults(self):
-    return self.__defaults
-
 
 def _scope_method(method):
+  @hide_stacktrace
   @functools.wraps(method)
   def wrapper(self, *args, **kwargs):
     with scope(self._path, absolute=True):
@@ -525,6 +548,10 @@ class Module(object, metaclass=ModuleMeta):
   def name(self):
     """The name of this module instance as a string."""
     return self._path.split('/')[-1]
+
+  @property
+  def defaults(self):
+    return self._defaults
 
   @property
   def values(self):
