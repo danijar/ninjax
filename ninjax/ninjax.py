@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.2.0'
+__version__ = '3.3.0'
 
 
 def add_note(e, note):
@@ -453,17 +453,19 @@ class ModuleMeta(type):
     """This runs once per user module class definition. It wraps the methods of
     the module class to automatically enter the name scope of the module."""
     method_names = []
-    for key, value in clsdict.items():
-      if key.startswith('__') and key != '__call__':
-        continue
-      elif isinstance(value, property):
-        clsdict[key] = property(
-            value.fget if not value.fget else _scope_method(value.fget),
-            value.fset if not value.fset else _scope_method(value.fset),
-            value.fdel if not value.fdel else _scope_method(value.fdel),
-            doc=value.__doc__)
-      elif inspect.isfunction(value):
-        method_names.append(key)
+    # Scope user methods of user modules but not of ninjax.Module.
+    if bases != (object,):
+      for key, value in clsdict.items():
+        if key.startswith('__') and key != '__call__':
+          continue
+        elif isinstance(value, property):
+          clsdict[key] = property(
+              value.fget if not value.fget else _scope_method(value.fget),
+              value.fset if not value.fset else _scope_method(value.fset),
+              value.fdel if not value.fdel else _scope_method(value.fdel),
+              doc=value.__doc__)
+        elif inspect.isfunction(value):
+          method_names.append(key)
     cls = super(ModuleMeta, mcs).__new__(mcs, name, bases, clsdict)
     for name, typ in cls.__annotations__.items():
       try:
@@ -563,7 +565,8 @@ class Module(object, metaclass=ModuleMeta):
   def value(self, name, make, *args, **kwargs):
     """Define and read a state entry in the scope of this module."""
     validate(name)
-    path = self.path + '/' + name
+    with scope(name) as path:
+      pass
     if path not in context():
       if callable(make):
         value = make(*args, **kwargs)
