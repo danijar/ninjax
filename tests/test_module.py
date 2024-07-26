@@ -64,10 +64,16 @@ class TestModule:
           assert var.path == 'foo/bar/baz'
           self.value('bav', jnp.float32, 5)
         var.read()
+      @nj.scope('method2')
+      def method2(self):
+        self.value('val', jnp.float32, ())
     foo = Foo(name='foo')
-    state = nj.init(foo.method)({})
+    state = {}
+    state = nj.init(foo.method)(state)
+    state = nj.init(foo.method2)(state)
     assert foo.sub('baz').path == 'foo/bar/baz'
     assert set(state.keys()) == {
         'foo/bar/baz/value',
         'foo/bar/bav',
+        'foo/method2/val',
     }
