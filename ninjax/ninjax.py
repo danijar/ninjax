@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.3.0'
+__version__ = '3.4.0'
 
 
 def add_note(e, note):
@@ -19,25 +19,27 @@ def add_note(e, note):
     print(note)
 
 
-def hide_stacktrace(fn):
+def hidestack(fn):
   @functools.wraps(fn)
-  def hide_wrapper(*args, **kwargs):
+  def hidewrapper(*args, **kwargs):
     try:
       return fn(*args, **kwargs)
     except Exception as e:
       tb = e.__traceback__
       filtered = None
       frames = list(traceback.walk_tb(tb))
-      for f, lineno in reversed(frames):
+      for i, (f, lineno) in enumerate(reversed(frames)):
         if f.f_code.co_filename == __file__:
-          if f.f_code.co_name == 'hide_wrapper':
+          if i == 0:
+            pass
+          elif f.f_code.co_name == 'hidewrapper':
             continue
-          if jax.config.jax_traceback_filtering != 'off':
+          elif jax.config.jax_traceback_filtering != 'off':
             continue
         filtered = types.TracebackType(filtered, f, f.f_lasti, lineno)
       e.with_traceback(filtered)
       raise e
-  return hide_wrapper
+  return hidewrapper
 
 
 ###############################################################################
@@ -124,7 +126,7 @@ def pure(fun, nested=False):
   - `track=False`: Boolean indicating whether to return the sets of state
     keys that the impure function attempted to read, modify, and create.
   """
-  @hide_stacktrace
+  @hidestack
   def purified(
       state, *args, seed=None, create=None, modify=None, ignore=None,
       track=False, **kwargs):
@@ -186,7 +188,7 @@ def init(fun, **jit_kwargs):
   the actual computation of the function."""
   if not getattr(fun, '_is_pure', False):
     fun = pure(fun)
-  @hide_stacktrace
+  @hidestack
   def wrapper(*args, **kwargs):
     state, out = fun(*args, create=True, modify=True, ignore=True, **kwargs)
     del out
@@ -239,7 +241,7 @@ def grad(fun, targets, has_aux=False):
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, **kwargs), {})
   fun = pure(fun, nested=True)
 
-  @hide_stacktrace
+  @hidestack
   def wrapper(*args, **kwargs):
     accessed, modified = _prerun(fun, *args, **kwargs)
 
@@ -408,7 +410,7 @@ SCOPE = ''
 
 
 @contextlib.contextmanager
-def scope(name, absolute=False):
+def scope(name, absolute=False, multi=False):
   """Enter a relative or absolute name scope. Name scopes are used to make
   names of state entries unique."""
   global SCOPE
@@ -422,7 +424,7 @@ def scope(name, absolute=False):
   elif SCOPE == '':
     SCOPE = name
   else:
-    validate(name, single=True)
+    validate(name, single=(not multi))
     SCOPE = outside + '/' + name
   try:
     yield SCOPE
@@ -437,7 +439,7 @@ def scope(name, absolute=False):
 
 def validate(path, single=False):
   names = path.split('/')
-  assert not single or len(names) == 1, (path, names)
+  assert not single or len(names) == 1, (path, names, single)
   for name in names:
     assert name, ('Name cannot be empty', path, name)
     assert '{' not in name, ('Did you forget to format a string?', path, name)
@@ -524,7 +526,7 @@ class ModuleMeta(type):
 
 
 def _scope_method(method):
-  @hide_stacktrace
+  @hidestack
   @functools.wraps(method)
   def wrapper(self, *args, **kwargs):
     with scope(self._path, absolute=True):
@@ -564,8 +566,7 @@ class Module(object, metaclass=ModuleMeta):
 
   def value(self, name, make, *args, **kwargs):
     """Define and read a state entry in the scope of this module."""
-    validate(name)
-    with scope(name) as path:
+    with scope(name, multi=True) as path:
       pass
     if path not in context():
       if callable(make):

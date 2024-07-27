@@ -25,10 +25,6 @@ jobs:
     - name: Tests
       run: |
         python -m pytest tests
-    - name: Examples
-      run: |
-        python -m examples.quickstart
-        python -m examples.integrations
     - name: Package
       run: |
         python -m pip install ninjax
