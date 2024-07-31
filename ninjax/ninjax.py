@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.4.0'
+__version__ = '3.5.0'
 
 
 def add_note(e, note):
@@ -566,8 +566,10 @@ class Module(object, metaclass=ModuleMeta):
 
   def value(self, name, make, *args, **kwargs):
     """Define and read a state entry in the scope of this module."""
-    with scope(name, multi=True) as path:
-      pass
+    validate(name)
+    assert SCOPE == self.path, (
+        name, 'Values can only be created in the root scope of a module.')
+    path = self.path + '/' + name
     if path not in context():
       if callable(make):
         value = make(*args, **kwargs)
@@ -597,13 +599,19 @@ class Module(object, metaclass=ModuleMeta):
 
   def sub(self, name, make=None, *args, **kwargs):
     """Define and retrieve a sub module."""
-    validate(name, single=True)
-    if name not in self._submodules:
+    validate(name)
+    assert SCOPE == self.path or SCOPE.startswith(self.path + '/'), (
+        name, 'Can only create submodules from inside the parent module.')
+    if SCOPE == self.path:
+      handle = name
+    else:
+      assert SCOPE.startswith(self.path + '/')
+      handle = SCOPE[len(self.path) + 1:] + '/' + name
+    if handle not in self._submodules:
       assert make, 'Provide constructor for submodule that does not exist.'
-      assert SCOPE.startswith(self.path), 'Must be inside the parent module.'
       module = make(*args, **kwargs, name=name)
-      self._submodules[name] = module
-    return self._submodules[name]
+      self._submodules[handle] = module
+    return self._submodules[handle]
 
 
 class Variable(Module):

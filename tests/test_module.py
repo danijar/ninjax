@@ -56,24 +56,26 @@ class TestModule:
       with nj.scope('bar'):
         v = nj.Variable(jnp.float32, 5, name='baz')
     assert v.path == 'foo/bar/baz'
+
     class Foo(nj.Module):
       def method(self):
         from ninjax import ninjax as nj
-        with nj.scope('bar'):
-          var = self.sub('baz', nj.Variable, jnp.float32, 5)
-          assert var.path == 'foo/bar/baz'
-          self.value('bav', jnp.float32, 5)
-        var.read()
+        with nj.scope('scope'):
+          sub = self.sub('sub1', nj.Variable, jnp.float32, 5)
+          sub.read()
+          assert sub.path == 'foo/scope/sub1'
+        self.value('value', jnp.float32, 5)
       @nj.scope('method2')
       def method2(self):
-        self.value('val', jnp.float32, ())
+        sub = self.sub('sub2', nj.Variable, jnp.float32, 2)
+        sub.read()
+
     foo = Foo(name='foo')
     state = {}
     state = nj.init(foo.method)(state)
     state = nj.init(foo.method2)(state)
-    assert foo.sub('baz').path == 'foo/bar/baz'
     assert set(state.keys()) == {
-        'foo/bar/baz/value',
-        'foo/bar/bav',
-        'foo/method2/val',
+        'foo/scope/sub1/value',
+        'foo/value',
+        'foo/method2/sub2/value',
     }
