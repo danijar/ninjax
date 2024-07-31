@@ -51,6 +51,19 @@ class TestModule:
     assert result == 18
     assert set(params.keys()) == {'foo/bar/value', 'foo/baz'}
 
+  def test_value(self):
+    class Module(nj.Module):
+      def method(self):
+        x = self.value('value', jnp.zeros, (), jnp.float32)
+        self.write('value', x + 1)
+        return self.read('value')
+    module = Module(name='module')
+    state = nj.init(module.method)({})
+    for reference in range(1, 5):
+      state, value = nj.pure(module.method)(state)
+      assert state == {'module/value': float(reference)}
+      assert value == float(reference)
+
   def test_scopes(self):
     with nj.scope('foo'):
       with nj.scope('bar'):

@@ -56,7 +56,24 @@ class TestGrad:
       assert x['w/value'] == jnp.array(0.5)
       assert dx['w/value'] == jnp.array(2.0)
 
-  def test_side_effect(self):
+  def test_side_effect_value(self):
+    class Module(nj.Module):
+      def inner(self, x):
+        self.value('value', jnp.zeros, (), jnp.float32)
+        self.write('value', self.read('value') + 1)
+        return x
+      def outer(self, x):
+        nj.grad(self.inner, [self.path + '/value'])(x)
+        return self.read('value')
+    module = Module(name='module')
+    state = nj.init(module.outer)({}, 1.0)
+    assert state == {'module/value': 0}
+    for count in range(1, 4):
+      state, output = nj.pure(module.outer)(state, 1.0)
+      assert state == {'module/value': count}
+      assert output == count
+
+  def test_side_effect_variable(self):
     counter = nj.Variable(jnp.array, 0, name='counter')
     w = nj.Variable(jnp.array, 0.5, name='w')
     def program(x):
