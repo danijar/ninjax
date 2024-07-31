@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.5.0'
+__version__ = '3.5.1'
 
 
 def add_note(e, note):
@@ -236,6 +236,7 @@ def grad(fun, targets, has_aux=False):
   state entries or modules. The transformed function returns a tuple containing
   the computed value, selected state entries, their gradients, and if
   applicable auxiliary outputs of the function."""
+  ctx = context()
   targets = targets if hasattr(targets, '__len__') else (targets,)
   if not has_aux:
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, **kwargs), {})
@@ -249,20 +250,20 @@ def grad(fun, targets, has_aux=False):
     for target in targets:
       if isinstance(target, Module):
         prefix = target.path + '/'
-        matches = {k: v for k, v in context().items() if k.startswith(prefix)}
+        matches = {k: v for k, v in ctx.items() if k.startswith(prefix)}
       if isinstance(target, str):
         pattern = re.compile(f'^{target}(/.*|$)')
-        matches = [k for k in context() if pattern.match(k)]
+        matches = [k for k in ctx if pattern.match(k)]
       if not matches:
-        existing = ', '.join(context().keys())
+        existing = ', '.join(ctx.keys())
         raise KeyError(
             f"Gradient target '{target}' did not match any state entries. " +
             f'Existing state entries: {existing}')
       strs += matches
-    existing = context().keys()
+    existing = ctx.keys()
     assert all(key in existing for key in strs), (strs, existing)
-    x1 = {k: v for k, v in context().items() if k in strs}
-    x2 = {k: v for k, v in context().items() if k not in strs}
+    x1 = {k: v for k, v in ctx.items() if k in strs}
+    x2 = {k: v for k, v in ctx.items() if k not in strs}
     if not x1:
       raise ValueError(
           'No inputs to differentiate with respect to. ' +
@@ -287,8 +288,10 @@ def grad(fun, targets, has_aux=False):
 
     (y, (changes, aux)), dx = backward(
         x1, x2, *args, seed=seed(None, True), **kwargs)
-    if context().modify:
-      context().update(changes)
+    if ctx.modify:
+      ctx.update(changes)
+      x1 = {k: ctx[k] for k in x1.keys()}
+
     return (y, x1, dx, aux) if has_aux else (y, x1, dx)
   return wrapper
 

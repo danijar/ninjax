@@ -73,6 +73,24 @@ class TestGrad:
       assert state == {'module/value': count}
       assert output == count
 
+  def test_side_effect_return(self):
+    class Module(nj.Module):
+      def loss(self):
+        self.value('value', jnp.zeros, (), jnp.float32)
+        self.write('value', self.read('value') + 1)
+        return 0.0
+      def update(self):
+        key = self.path + '/value'
+        loss, inps, grads = nj.grad(self.loss, [key])()
+        nj.context()[key] = inps[key] - 0.1 * grads[key]
+        return loss
+    module = Module(name='module')
+    state = nj.init(module.update)({})
+    assert state == {'module/value': 0}
+    for count in range(1, 4):
+      state, _ = nj.pure(module.update)(state)
+      assert state == {'module/value': count}
+
   def test_side_effect_variable(self):
     counter = nj.Variable(jnp.array, 0, name='counter')
     w = nj.Variable(jnp.array, 0.5, name='w')
