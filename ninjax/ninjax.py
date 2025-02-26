@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.5.1'
+__version__ = '3.6.0'
 
 
 def add_note(e, note):
@@ -232,12 +232,16 @@ def creating():
 
 @jax.named_scope('grad')
 def grad(fun, targets, has_aux=False):
-  """Compute the gradient of an impure function with respect to the specified
-  state entries or modules. The transformed function returns a tuple containing
-  the computed value, selected state entries, their gradients, and if
+  """Compute the gradient of an impure function with respect to either function
+  arguments or state entries. The transformed function returns a tuple
+  containing the function output, the selected targets, their gradients, and if
   applicable auxiliary outputs of the function."""
-  ctx = context()
+
+  single = isinstance(targets, int)
   targets = targets if hasattr(targets, '__len__') else (targets,)
+
+  ctx = context()
+
   if not has_aux:
     fun = lambda *args, _fun=fun, **kwargs: (_fun(*args, **kwargs), {})
   fun = pure(fun, nested=True)
@@ -246,53 +250,73 @@ def grad(fun, targets, has_aux=False):
   def wrapper(*args, **kwargs):
     accessed, modified = _prerun(fun, *args, **kwargs)
 
-    strs = []
-    for target in targets:
-      if isinstance(target, Module):
-        prefix = target.path + '/'
-        matches = {k: v for k, v in ctx.items() if k.startswith(prefix)}
-      if isinstance(target, str):
-        pattern = re.compile(f'^{target}(/.*|$)')
-        matches = [k for k in ctx if pattern.match(k)]
-      if not matches:
-        existing = ', '.join(ctx.keys())
-        raise KeyError(
-            f"Gradient target '{target}' did not match any state entries. " +
-            f'Existing state entries: {existing}')
-      strs += matches
-    existing = ctx.keys()
-    assert all(key in existing for key in strs), (strs, existing)
-    x1 = {k: v for k, v in ctx.items() if k in strs}
-    x2 = {k: v for k, v in ctx.items() if k not in strs}
-    if not x1:
-      raise ValueError(
-          'No inputs to differentiate with respect to. ' +
-          f"User provided targets: '{targets}'")
+    # If differentiating with respect to function inputs, offset the argument
+    # numbers to account for the state entry inputs to the wrapper function.
+    if all(isinstance(x, int) for x in targets):
+      argnums = [2 + x for x in targets]
+      x1 = {k: v for k, v in ctx.items() if k in accessed}
+      x2 = {}
+      selected = [args[i] for i in targets]
 
-    for key in x1.keys():
-      if key not in accessed:
-        raise RuntimeError(
-            f"Trying to compute gradient with respect to key '{key}' "
-            'but the differentiated function does not access it.\n'
-            f'Accessed keys: {list(accessed)}\n'
-            f'Gradient keys: {list(strs)}')
-    x1 = {k: v for k, v in x1.items() if k in accessed}
-    x2 = {k: v for k, v in x2.items() if k in accessed}
+    # If differentiating with respect to state entries, take the gradient with
+    # respect to the first input of the wrapper function.
+    else:
+      argnums = 0
+      strs = []
+      for target in targets:
+        if isinstance(target, Module):
+          prefix = target.path + '/'
+          matches = {k: v for k, v in ctx.items() if k.startswith(prefix)}
+        if isinstance(target, str):
+          pattern = re.compile(f'^{target}(/.*|$)')
+          matches = [k for k in ctx if pattern.match(k)]
+        if not matches:
+          existing = ', '.join(ctx.keys())
+          raise KeyError(
+              f"Gradient target '{target}' did not match any state entries. " +
+              f'Existing state entries: {existing}')
+        strs += matches
+      existing = ctx.keys()
+      assert all(key in existing for key in strs), (strs, existing)
+      x1 = {k: v for k, v in ctx.items() if k in strs}
+      x2 = {k: v for k, v in ctx.items() if k not in strs}
+      if not x1:
+        raise ValueError(
+            'No inputs to differentiate with respect to. ' +
+            f"User provided targets: '{targets}'")
+      for key in x1.keys():
+        if key not in accessed:
+          raise RuntimeError(
+              f"Trying to compute gradient with respect to key '{key}' "
+              'but the differentiated function does not access it.\n'
+              f'Accessed keys: {list(accessed)}\n'
+              f'Gradient keys: {list(strs)}')
+      x1 = {k: v for k, v in x1.items() if k in accessed}
+      x2 = {k: v for k, v in x2.items() if k in accessed}
+      selected = x1
 
     def forward(x1, x2, *args, **kwargs):
       before = {**x1, **x2}
       state, (y, aux) = fun(before, *args, create=False, **kwargs)
       changes = {k: v for k, v in state.items() if k in modified}
       return y, (changes, aux)
-    backward = jax.value_and_grad(forward, has_aux=True)
 
+    backward = jax.value_and_grad(forward, argnums, has_aux=True)
     (y, (changes, aux)), dx = backward(
         x1, x2, *args, seed=seed(None, True), **kwargs)
+
     if ctx.modify:
       ctx.update(changes)
-      x1 = {k: ctx[k] for k in x1.keys()}
 
-    return (y, x1, dx, aux) if has_aux else (y, x1, dx)
+    if ctx.modify and not all(isinstance(x, int) for x in targets):
+      selected = {k: ctx[k] for k in selected.keys()}
+
+    if single:
+      selected, = selected
+      dx, = dx
+
+    return (y, selected, dx, aux) if has_aux else (y, selected, dx)
+
   return wrapper
 
 
