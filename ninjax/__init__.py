@@ -9,10 +9,11 @@ from .ninjax import pure
 from .ninjax import seed
 
 # Transforms
-from .ninjax import grad
-from .ninjax import cond
-from .ninjax import scan
 from .ninjax import checkpoint
+from .ninjax import cond
+from .ninjax import grad
+from .ninjax import scan
+from .ninjax import while_loop
 
 # Advanced
 from .ninjax import context

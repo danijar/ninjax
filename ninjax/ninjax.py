@@ -325,6 +325,40 @@ def cond(pred, true_fun, false_fun, *operands):
   return out
 
 
+@jax.named_scope('while_loop')
+def while_loop(cond_fun, body_fun, carry):
+  body_fun = pure(body_fun, nested=True)
+  accessed, modified = _prerun(body_fun, carry)
+
+  changing = {k: v for k, v in context().items() if k in modified}
+  unchanging = {
+      k: v for k, v in context().items()
+      if k in accessed and k not in modified}
+  shared_seed = seed(optional=True)
+
+  def cond_fun_wrapper(carry):
+    return cond_fun(carry[0])
+
+  def body_fun_wrapper(carry):
+    carry, changing, index = carry
+    if shared_seed is None:
+      seed = None
+    else:
+      seed = jax.random.fold_in(shared_seed, index)
+    state = {**unchanging, **changing}
+    state, carry = body_fun(state, carry, create=False, seed=seed)
+    changing = {k: v for k, v in state.items() if k in modified}
+    return carry, changing, index + 1
+
+  carry, changes, _ = jax.lax.while_loop(
+      cond_fun_wrapper, body_fun_wrapper, (carry, changing, 0))
+
+  if context().modify:
+    context().update(changes)
+
+  return carry
+
+
 @jax.named_scope('scan')
 def scan(fun, carry, xs, length=None, reverse=False, unroll=1, axis=0):
   if axis:
