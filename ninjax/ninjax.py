@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.6.0'
+__version__ = '3.6.1'
 
 
 def add_note(e, note):
@@ -449,7 +449,7 @@ def checkpoint(fun, **cp_kwargs):
 @jax.named_scope('prerun')
 def _prerun(fun, *args, **kwargs):
   if not context().modify and not context().create:
-    return set()
+    return set(), set()
   # Copy container structure so modifications inside the user function
   # (e.g. popping from a dict) are not applied during prerun.
   args, kwargs = jax.tree.map(lambda x: x, (args, kwargs))
