@@ -9,7 +9,7 @@ import types
 import jax
 import jax.numpy as jnp
 
-__version__ = '3.6.1'
+__version__ = '3.6.2'
 
 
 def add_note(e, note):
@@ -716,22 +716,27 @@ class Tree(Module):
 def flatten(tree):
   items, treedef = jax.tree_util.tree_flatten_with_path(tree)
   paths, values = zip(*items)
-  tostr = lambda x: re.sub(
-      r'[^a-z0-9-_/]+', '_', str(x).lower()).replace('_/', '').replace('_', '')
-  strpaths = [[tostr(x) for x in path] for path in paths]
-  keys = ['/'.join(x for x in strpath if x) for strpath in strpaths]
+  def tostr(key):
+    key = key.key if hasattr(key, 'key') else key
+    print(str(key))
+    key = re.sub(r'[^A-Za-z0-9-_/]+', '', str(key))
+    return key
+  spaths = [[tostr(x) for x in path] for path in paths]
+  keys = ['/'.join(x for x in spath if x) for spath in spaths]
+  treedef = (keys, treedef)
   if len(set(keys)) < len(keys):
     raise ValueError(
         'Cannot flatten PyTree to dict because paths are ambiguous '
         'after converting them to string keys.\n'
         'Paths: {paths}\nKeys: {keys}')
-  items = sorted(list(zip(keys, values)), key=lambda x: x[0])
-  return dict(items), treedef
+  items = dict(sorted(list(zip(keys, values)), key=lambda x: x[0]))
+  return items, treedef
 
 
 def unflatten(mapping, treedef):
-  items = sorted(list(mapping.items()), key=lambda x: x[0])
-  _, values = zip(*items) if items else ([], [])
+  keys, treedef = treedef
+  assert set(mapping.keys()) == set(keys)
+  values = [mapping[k] for k in keys]
   return jax.tree.unflatten(treedef, values)
 
 
