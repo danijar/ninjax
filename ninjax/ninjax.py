@@ -718,7 +718,6 @@ def flatten(tree):
   paths, values = zip(*items)
   def tostr(key):
     key = key.key if hasattr(key, 'key') else key
-    print(str(key))
     key = re.sub(r'[^A-Za-z0-9-_/]+', '', str(key))
     return key
   spaths = [[tostr(x) for x in path] for path in paths]
