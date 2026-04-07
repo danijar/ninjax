@@ -753,15 +753,16 @@ class Variable(Module):
 class Tree(Module):
     def __init__(self, make, *args, **kwargs):
         self.make = functools.partial(make, *args, **kwargs)
+        self.treedef = None
 
     def read(self):
-        if not self.values:
+        if not self.treedef:
             mapping, self.treedef = flatten(self.make())
             [self.value(k, v) for k, v in mapping.items()]
         return unflatten(self.values, self.treedef)
 
     def write(self, tree):
-        if not self.values:
+        if not self.treedef:
             mapping, self.treedef = flatten(self.make())
             [self.value(k, v) for k, v in mapping.items()]
         mapping, treedef = flatten(tree)
@@ -773,7 +774,7 @@ class Tree(Module):
 
 def flatten(tree):
     items, treedef = jax.tree_util.tree_flatten_with_path(tree)
-    paths, values = zip(*items)
+    paths, values = zip(*items) if items else ((), ())
 
     def tostr(key):
         key = key.key if hasattr(key, 'key') else key
@@ -782,6 +783,7 @@ def flatten(tree):
 
     spaths = [[tostr(x) for x in path] for path in paths]
     keys = ['/'.join(x for x in spath if x) for spath in spaths]
+    assert len(keys) == len(set(keys)), keys
     treedef = (keys, treedef)
     if len(set(keys)) < len(keys):
         raise ValueError(
