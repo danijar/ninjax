@@ -717,16 +717,15 @@ class Variable(Module):
 class Tree(Module):
     def __init__(self, make, *args, **kwargs):
         self.make = functools.partial(make, *args, **kwargs)
-        self.treedef = None
 
     def read(self):
-        if not self.treedef:
+        if not self.values:
             mapping, self.treedef = flatten(self.make())
             [self.value(k, v) for k, v in mapping.items()]
         return unflatten(self.values, self.treedef)
 
     def write(self, tree):
-        if not self.treedef:
+        if not self.values:
             mapping, self.treedef = flatten(self.make())
             [self.value(k, v) for k, v in mapping.items()]
         mapping, treedef = flatten(tree)
