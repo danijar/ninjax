@@ -1,5 +1,48 @@
-[tool.pytest.ini_options]
-markers = ['slow']
-addopts = ['--strict-config', '-ra']
-pythonpath = ['.']
-testpaths = ['tests']
+[project]
+name = "ninjax"
+version = "3.6.3"
+description='Flexible Modules for JAX'
+readme="README.md"
+license="MIT"
+authors = [{name = "Danijar Hafner", email = "mail@danijar.com"}]
+maintainers = [{name = "Danijar Hafner", email = "mail@danijar.com"}]
+urls = {Homepage = "http://github.com/danijar/ninjax"}
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.9"
+dependencies = ["jax"]
+
+[dependency-groups]
+dev = [
+  "ipdb",
+  "pytest",
+  "ruff",
+  "twine",
+]
+
+tests = [
+  "cloudpickle",
+  "dm-haiku",
+  "flax",
+  "optax",
+  "pytest",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "."
+
+[tool.ruff]
+line-length = 79
+indent-width = 4
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "single"
