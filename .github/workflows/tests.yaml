@@ -6,26 +6,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: False
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-    - uses: actions/checkout@v3
-    - name: Python
-      uses: actions/setup-python@v4
+    - uses: actions/checkout@v5
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install pytest
-        python -m pip install jax
-        python -m pip install cloudpickle
-        python -m pip install dm-haiku
-        python -m pip install flax
-        python -m pip install optax
+      run: uv sync
     - name: Tests
-      run: |
-        python -m pytest tests
-    - name: Package
-      run: |
-        python -m pip install ninjax
+      run: uv run --group tests pytest
+    - name: Build
+      run: uv build
+    - name: PyPi
+      run: uv pip install ninjax

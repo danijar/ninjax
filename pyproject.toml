@@ -19,7 +19,6 @@ dependencies = ["jax"]
 [dependency-groups]
 dev = [
   "ipdb",
-  "neovim",
   "pytest",
   "ruff",
   "twine",
