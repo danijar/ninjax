@@ -147,15 +147,12 @@ def pure(fun, nested=False):
             create = create if create is not None else context.create
             modify = modify if modify is not None else context.modify
             ignore = ignore if ignore is not None else context.ignore
-            assert context.create or not create, (
-                'Parent context disabled create.'
-            )
-            assert context.modify or not modify, (
-                'Parent context disabled modify.'
-            )
-            assert not context.ignore or ignore, (
-                'Parent context enabled ignore.'
-            )
+            msg = 'Parent context disabled create.'
+            assert context.create or not create, msg
+            msg = 'Parent context disabled modify.'
+            assert context.modify or not modify, msg
+            msg = 'Parent context enabled ignore.'
+            assert not context.ignore or ignore, msg
         else:
             create = create if create is not None else False
             modify = modify if modify is not None else True
@@ -203,9 +200,8 @@ def context():
     and seed() to get the next random seed."""
     context = CONTEXT.get(threading.get_ident(), None)
     if context is None:
-        raise RuntimeError(
-            'Wrap impure functions in pure() before running them.'
-        )
+        msg = 'Wrap impure functions in pure() before running them.'
+        raise RuntimeError(msg)
     return context
 
 
@@ -298,9 +294,8 @@ def grad(fun, targets, has_aux=False):
             for target in targets:
                 if isinstance(target, Module):
                     prefix = target.path + '/'
-                    matches = {
-                        k: v for k, v in ctx.items() if k.startswith(prefix)
-                    }
+                    fn = lambda k: k.startswith(prefix)
+                    matches = {k: v for k, v in ctx.items() if fn(k)}
                 if isinstance(target, str):
                     pattern = re.compile(f'^{target}(/.*|$)')
                     matches = [k for k in ctx if pattern.match(k)]
@@ -398,11 +393,8 @@ def while_loop(cond_fun, body_fun, carry):
     accessed, modified = _prerun(body_fun, carry)
 
     changing = {k: v for k, v in context().items() if k in modified}
-    unchanging = {
-        k: v
-        for k, v in context().items()
-        if k in accessed and k not in modified
-    }
+    fn = lambda k: k in accessed and k not in modified
+    unchanging = {k: v for k, v in context().items() if fn(k)}
     shared_seed = seed(optional=True)
 
     def cond_fun_wrapper(carry):
@@ -438,11 +430,8 @@ def scan(fun, carry, xs, length=None, reverse=False, unroll=1, axis=0):
     accessed, modified = _prerun(fun, carry, jax.tree.map(lambda x: x[0], xs))
 
     changing = {k: v for k, v in context().items() if k in modified}
-    unchanging = {
-        k: v
-        for k, v in context().items()
-        if k in accessed and k not in modified
-    }
+    fn = lambda k: k in accessed and k not in modified
+    unchanging = {k: v for k, v in context().items() if fn(k)}
 
     def inner(carry, x):
         carry, changing = carry
@@ -529,10 +518,9 @@ def scope(name, absolute=False, multi=False):
     names of state entries unique."""
     global SCOPE
     if SCOPE is None:
-        msg = (
+        raise RuntimeError(
             'Purify stateful functions with fn = pure(fn) before running them.'
         )
-        raise RuntimeError(msg)
     outside = SCOPE
     if absolute:
         validate(name)
@@ -558,11 +546,8 @@ def validate(path, single=False):
     assert not single or len(names) == 1, (path, names, single)
     for name in names:
         assert name, ('Name cannot be empty', path, name)
-        assert '{' not in name, (
-            'Did you forget to format a string?',
-            path,
-            name,
-        )
+        msg = 'Did you forget to format a string?'
+        assert '{' not in name, (msg, path, name)
         msg = 'Only letters, numbers, and underscores allowed in names'
         assert re.match(r'^[A-Za-z0-9_]+$', name), (msg, path, name)
 
@@ -602,15 +587,13 @@ class ModuleMeta(type):
             except Exception:
                 msg = f"Annotation '{typ}' for field '{key}' is not a valid type."
                 raise ValueError(msg)
+        items = cls.__annotations__.items()
         cls._defaults = {
-            k: getattr(cls, k)
-            for k, v in cls.__annotations__.items()
-            if hasattr(cls, k)
+            k: getattr(cls, k) for k, v in items if hasattr(cls, k)
         }
         for key, value in cls.__annotations__.items():
-            setattr(
-                cls, key, property(lambda self, key=key: self._fields[key])
-            )
+            prop = property(lambda self, key=key: self._fields[key])
+            setattr(cls, key, prop)
         for name in method_names:
             if name in cls._defaults:
                 continue
@@ -623,10 +606,9 @@ class ModuleMeta(type):
         """This runs once per use module instance creation. It derives a unique
         name and path for the module instance."""
         if not isinstance(name, str):
-            msg = (
+            raise TypeError(
                 "Please provide a module name via Module(..., name='example')."
             )
-            raise TypeError(msg)
         validate(name, single=True)
         fields = {}
         for key, typ in cls.__annotations__.items():
@@ -654,9 +636,8 @@ class ModuleMeta(type):
         except TypeError as e:
             if kwargs:
                 keys = ', '.join(sorted(kwargs.keys()))
-                add_note(
-                    e, f'Keyword arguments not matched to class fields: {keys}'
-                )
+                msg = f'Keyword arguments not matched to class fields: {keys}'
+                add_note(e, msg)
             raise
         return obj
 
@@ -747,9 +728,8 @@ class Module(object, metaclass=ModuleMeta):
             assert SCOPE.startswith(self.path + '/')
             handle = SCOPE[len(self.path) + 1 :] + '/' + name
         if handle not in self._submodules:
-            assert make, (
-                'Provide constructor for submodule that does not exist.'
-            )
+            msg = 'Provide constructor for submodule that does not exist.'
+            assert make, msg
             module = make(*args, **kwargs, name=name)
             self._submodules[handle] = module
         return self._submodules[handle]
