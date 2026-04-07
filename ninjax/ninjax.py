@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 
 def add_note(e, note):
-    if hasattr(e, "add_note"):
+    if hasattr(e, 'add_note'):
         e.add_note(note)
     else:
         print(note)
@@ -30,9 +30,9 @@ def hidestack(fn):
                 if f.f_code.co_filename == __file__:
                     if i == 0:
                         pass
-                    elif f.f_code.co_name == "hidewrapper":
+                    elif f.f_code.co_name == 'hidewrapper':
                         continue
-                    elif jax.config.jax_traceback_filtering != "off":
+                    elif jax.config.jax_traceback_filtering != 'off':
                         continue
                 filtered = types.TracebackType(filtered, f, f.f_lasti, lineno)
             e.with_traceback(filtered)
@@ -79,7 +79,7 @@ class Context(dict):
         except KeyError:
             raise KeyError(
                 f"Trying to access state key '{key}' that does not exist in context "
-                f"create={self.create} modify={self.modify} ignore={self.ignore}."
+                f'create={self.create} modify={self.modify} ignore={self.ignore}.'
             )
 
     def __setitem__(self, key, value):
@@ -91,18 +91,18 @@ class Context(dict):
             return  # Do not overwrite existing entries.
         if not self.create and key not in self:
             raise RuntimeError(
-                "Pass create=True to pure functions to allow them to create new "
-                f"state entries or use nj.init(). You were trying to set {key} to "
-                f"shape {value.shape}."
+                'Pass create=True to pure functions to allow them to create new '
+                f'state entries or use nj.init(). You were trying to set {key} to '
+                f'shape {value.shape}.'
             )
         if not self.modify:
             existing = self[key]
             raise RuntimeError(
-                "Cannot modify state entries here. (If you want to modify "
-                "state inside of scan() pass modify=True.) "
-                + f"You were trying to change {key} from shape {existing.shape} "
-                f"and dtype {existing.dtype} to shape {value.shape} and "
-                + f"dtype {value.dtype}."
+                'Cannot modify state entries here. (If you want to modify '
+                'state inside of scan() pass modify=True.) '
+                + f'You were trying to change {key} from shape {existing.shape} '
+                f'and dtype {existing.dtype} to shape {value.shape} and '
+                + f'dtype {value.dtype}.'
             )
         super().__setitem__(key, value)
 
@@ -138,32 +138,39 @@ def pure(fun, nested=False):
         track=False,
         **kwargs,
     ):
-        if isinstance(seed, int) or (hasattr(seed, "shape") and seed.shape == ()):
+        if isinstance(seed, int) or (
+            hasattr(seed, 'shape') and seed.shape == ()
+        ):
             seed = jnp.array([seed, seed], jnp.uint32)
         context = CONTEXT.get(threading.get_ident(), None)
         if context is not None:
             create = create if create is not None else context.create
             modify = modify if modify is not None else context.modify
             ignore = ignore if ignore is not None else context.ignore
-            assert context.create or not create, "Parent context disabled create."
-            assert context.modify or not modify, "Parent context disabled modify."
-            assert not context.ignore or ignore, "Parent context enabled ignore."
+            msg = 'Parent context disabled create.'
+            assert context.create or not create, msg
+            msg = 'Parent context disabled modify.'
+            assert context.modify or not modify, msg
+            msg = 'Parent context enabled ignore.'
+            assert not context.ignore or ignore, msg
         else:
             create = create if create is not None else False
             modify = modify if modify is not None else True
             ignore = ignore if ignore is not None else False
         if not isinstance(state, dict):
-            raise ValueError("Must provide a dict as state.")
-        name = getattr(fun, "__name__", str(fun))
+            raise ValueError('Must provide a dict as state.')
+        name = getattr(fun, '__name__', str(fun))
         if context and (not nested):
             raise RuntimeError(
-                f"You are trying to call pure {name}() inside pure "
-                f"{context.name}(). Is that intentional? If you want to nest pure "
-                f"functions, use pure(..., nested=True) for the inner function."
+                f'You are trying to call pure {name}() inside pure '
+                f'{context.name}(). Is that intentional? If you want to nest pure '
+                f'functions, use pure(..., nested=True) for the inner function.'
             )
         before = context
         try:
-            context = Context(state.copy(), seed, create, modify, ignore, [], name)
+            context = Context(
+                state.copy(), seed, create, modify, ignore, [], name
+            )
             CONTEXT[threading.get_ident()] = context
             out = fun(*args, **kwargs)
             state = dict(context)
@@ -172,7 +179,13 @@ def pure(fun, nested=False):
                 before.modified |= context.modified
                 before.created |= context.created
             if track:
-                return state, out, context.accessed, context.modified, context.created
+                return (
+                    state,
+                    out,
+                    context.accessed,
+                    context.modified,
+                    context.created,
+                )
             return state, out
         finally:
             CONTEXT[threading.get_ident()] = before
@@ -187,7 +200,8 @@ def context():
     and seed() to get the next random seed."""
     context = CONTEXT.get(threading.get_ident(), None)
     if context is None:
-        raise RuntimeError("Wrap impure functions in pure() before running them.")
+        msg = 'Wrap impure functions in pure() before running them.'
+        raise RuntimeError(msg)
     return context
 
 
@@ -195,19 +209,21 @@ def init(fun, **jit_kwargs):
     """Creates an initializer for a pure or impure function, which when called
     with example inputs , quickly populates the initial state without performing
     the actual computation of the function."""
-    if not getattr(fun, "_is_pure", False):
+    if not getattr(fun, '_is_pure', False):
         fun = pure(fun)
 
     @hidestack
     def wrapper(*args, **kwargs):
-        state, out = fun(*args, create=True, modify=True, ignore=True, **kwargs)
+        state, out = fun(
+            *args, create=True, modify=True, ignore=True, **kwargs
+        )
         del out
         return state
 
     return jax.jit(wrapper, **jit_kwargs)
 
 
-@jax.named_scope("seed")
+@jax.named_scope('seed')
 def seed(amount=None, optional=False, reserve=16):
     """Split the global random seed and return a new local seed."""
     ctx = context()
@@ -215,8 +231,8 @@ def seed(amount=None, optional=False, reserve=16):
         if optional:
             return None if amount is None else [None] * amount
         raise ValueError(
-            "You must provide a seed to the pure function to use nj.seed() "
-            "inside the impure function."
+            'You must provide a seed to the pure function to use nj.seed() '
+            'inside the impure function.'
         )
     if amount:
         keys = jax.random.split(ctx.seed, amount + 1)
@@ -242,7 +258,7 @@ def creating():
 ###############################################################################
 
 
-@jax.named_scope("grad")
+@jax.named_scope('grad')
 def grad(fun, targets, has_aux=False):
     """Compute the gradient of an impure function with respect to either function
     arguments or state entries. The transformed function returns a tuple
@@ -250,7 +266,7 @@ def grad(fun, targets, has_aux=False):
     applicable auxiliary outputs of the function."""
 
     single = isinstance(targets, int)
-    targets = targets if hasattr(targets, "__len__") else (targets,)
+    targets = targets if hasattr(targets, '__len__') else (targets,)
 
     ctx = context()
 
@@ -277,16 +293,17 @@ def grad(fun, targets, has_aux=False):
             strs = []
             for target in targets:
                 if isinstance(target, Module):
-                    prefix = target.path + "/"
-                    matches = {k: v for k, v in ctx.items() if k.startswith(prefix)}
+                    prefix = target.path + '/'
+                    fn = lambda k: k.startswith(prefix)
+                    matches = {k: v for k, v in ctx.items() if fn(k)}
                 if isinstance(target, str):
-                    pattern = re.compile(f"^{target}(/.*|$)")
+                    pattern = re.compile(f'^{target}(/.*|$)')
                     matches = [k for k in ctx if pattern.match(k)]
                 if not matches:
-                    existing = ", ".join(ctx.keys())
+                    existing = ', '.join(ctx.keys())
                     raise KeyError(
                         f"Gradient target '{target}' did not match any state entries. "
-                        + f"Existing state entries: {existing}"
+                        + f'Existing state entries: {existing}'
                     )
                 strs += matches
             existing = ctx.keys()
@@ -295,16 +312,16 @@ def grad(fun, targets, has_aux=False):
             x2 = {k: v for k, v in ctx.items() if k not in strs}
             if not x1:
                 raise ValueError(
-                    "No inputs to differentiate with respect to. "
+                    'No inputs to differentiate with respect to. '
                     + f"User provided targets: '{targets}'"
                 )
             for key in x1.keys():
                 if key not in accessed:
                     raise RuntimeError(
                         f"Trying to compute gradient with respect to key '{key}' "
-                        "but the differentiated function does not access it.\n"
-                        f"Accessed keys: {list(accessed)}\n"
-                        f"Gradient keys: {list(strs)}"
+                        'but the differentiated function does not access it.\n'
+                        f'Accessed keys: {list(accessed)}\n'
+                        f'Gradient keys: {list(strs)}'
                     )
             x1 = {k: v for k, v in x1.items() if k in accessed}
             x2 = {k: v for k, v in x2.items() if k in accessed}
@@ -336,7 +353,7 @@ def grad(fun, targets, has_aux=False):
     return wrapper
 
 
-@jax.named_scope("cond")
+@jax.named_scope('cond')
 def cond(pred, true_fun, false_fun, *operands):
     true_fun = pure(true_fun, nested=True)
     false_fun = pure(false_fun, nested=True)
@@ -358,22 +375,26 @@ def cond(pred, true_fun, false_fun, *operands):
 
     needed = {k: v for k, v in context().items() if k in accessed}
     changes, out = jax.lax.cond(
-        pred, true_fun_wrapper, false_fun_wrapper, needed, *seed(2, True), *operands
+        pred,
+        true_fun_wrapper,
+        false_fun_wrapper,
+        needed,
+        *seed(2, True),
+        *operands,
     )
     if context().modify:
         context().update(changes)
     return out
 
 
-@jax.named_scope("while_loop")
+@jax.named_scope('while_loop')
 def while_loop(cond_fun, body_fun, carry):
     body_fun = pure(body_fun, nested=True)
     accessed, modified = _prerun(body_fun, carry)
 
     changing = {k: v for k, v in context().items() if k in modified}
-    unchanging = {
-        k: v for k, v in context().items() if k in accessed and k not in modified
-    }
+    fn = lambda k: k in accessed and k not in modified
+    unchanging = {k: v for k, v in context().items() if fn(k)}
     shared_seed = seed(optional=True)
 
     def cond_fun_wrapper(carry):
@@ -400,7 +421,7 @@ def while_loop(cond_fun, body_fun, carry):
     return carry
 
 
-@jax.named_scope("scan")
+@jax.named_scope('scan')
 def scan(fun, carry, xs, length=None, reverse=False, unroll=1, axis=0):
     if axis:
         xs = jax.tree.map(lambda x: x.swapaxes(0, axis), xs)
@@ -409,9 +430,8 @@ def scan(fun, carry, xs, length=None, reverse=False, unroll=1, axis=0):
     accessed, modified = _prerun(fun, carry, jax.tree.map(lambda x: x[0], xs))
 
     changing = {k: v for k, v in context().items() if k in modified}
-    unchanging = {
-        k: v for k, v in context().items() if k in accessed and k not in modified
-    }
+    fn = lambda k: k in accessed and k not in modified
+    unchanging = {k: v for k, v in context().items() if fn(k)}
 
     def inner(carry, x):
         carry, changing = carry
@@ -437,10 +457,10 @@ def scan(fun, carry, xs, length=None, reverse=False, unroll=1, axis=0):
 
 
 def checkpoint(fun, **cp_kwargs):
-    static = cp_kwargs.get("static_argnums", tuple())
+    static = cp_kwargs.get('static_argnums', tuple())
     static = static if isinstance(static, tuple) else (static,)
     static = tuple(x + 1 for x in static)
-    cp_kwargs["static_argnums"] = static
+    cp_kwargs['static_argnums'] = static
 
     accessed, modified = [None], [None]
     fun = pure(fun, nested=True)
@@ -451,7 +471,7 @@ def checkpoint(fun, **cp_kwargs):
         changes = {k: v for k, v in state.items() if k in modified[0]}
         return changes, output
 
-    @jax.named_scope("checkpoint")
+    @jax.named_scope('checkpoint')
     def outer(*args, **kwargs):
         accessed[0], modified[0] = _prerun(fun, *args, **kwargs)
         needed = {k: v for k, v in context().items() if k in accessed[0]}
@@ -463,7 +483,7 @@ def checkpoint(fun, **cp_kwargs):
     return outer
 
 
-@jax.named_scope("prerun")
+@jax.named_scope('prerun')
 def _prerun(fun, *args, **kwargs):
     if not context().modify and not context().create:
         return set(), set()
@@ -471,7 +491,12 @@ def _prerun(fun, *args, **kwargs):
     # (e.g. popping from a dict) are not applied during prerun.
     args, kwargs = jax.tree.map(lambda x: x, (args, kwargs))
     state, output, accessed, modified, created = fun(
-        dict(context()), *args, ignore=True, track=True, seed=seed(None, True), **kwargs
+        dict(context()),
+        *args,
+        ignore=True,
+        track=True,
+        seed=seed(None, True),
+        **kwargs,
     )
     del output
     creations = {k: v for k, v in state.items() if k in created}
@@ -484,7 +509,7 @@ def _prerun(fun, *args, **kwargs):
 ###############################################################################
 
 
-SCOPE = ""
+SCOPE = ''
 
 
 @contextlib.contextmanager
@@ -493,21 +518,22 @@ def scope(name, absolute=False, multi=False):
     names of state entries unique."""
     global SCOPE
     if SCOPE is None:
-        msg = "Purify stateful functions with fn = pure(fn) before running them."
-        raise RuntimeError(msg)
+        raise RuntimeError(
+            'Purify stateful functions with fn = pure(fn) before running them.'
+        )
     outside = SCOPE
     if absolute:
         validate(name)
         SCOPE = name
-    elif SCOPE == "":
+    elif SCOPE == '':
         SCOPE = name
     else:
         validate(name, single=(not multi))
-        SCOPE = outside + "/" + name
+        SCOPE = outside + '/' + name
     try:
         yield SCOPE
     except Exception as e:
-        if not hasattr(e, "_njscope"):
+        if not hasattr(e, '_njscope'):
             e._njscope = SCOPE
             add_note(e, f"Exception happened inside Ninjax scope '{SCOPE}'.")
         raise
@@ -516,13 +542,14 @@ def scope(name, absolute=False, multi=False):
 
 
 def validate(path, single=False):
-    names = path.split("/")
+    names = path.split('/')
     assert not single or len(names) == 1, (path, names, single)
     for name in names:
-        assert name, ("Name cannot be empty", path, name)
-        assert "{" not in name, ("Did you forget to format a string?", path, name)
-        msg = "Only letters, numbers, and underscores allowed in names"
-        assert re.match(r"^[A-Za-z0-9_]+$", name), (msg, path, name)
+        assert name, ('Name cannot be empty', path, name)
+        msg = 'Did you forget to format a string?'
+        assert '{' not in name, (msg, path, name)
+        msg = 'Only letters, numbers, and underscores allowed in names'
+        assert re.match(r'^[A-Za-z0-9_]+$', name), (msg, path, name)
 
 
 class ModuleMeta(type):
@@ -536,13 +563,19 @@ class ModuleMeta(type):
         # Scope user methods of user modules but not of ninjax.Module.
         if bases != (object,):
             for key, value in clsdict.items():
-                if key.startswith("__") and key != "__call__":
+                if key.startswith('__') and key != '__call__':
                     continue
                 elif isinstance(value, property):
                     clsdict[key] = property(
-                        value.fget if not value.fget else _scope_method(value.fget),
-                        value.fset if not value.fset else _scope_method(value.fset),
-                        value.fdel if not value.fdel else _scope_method(value.fdel),
+                        value.fget
+                        if not value.fget
+                        else _scope_method(value.fget),
+                        value.fset
+                        if not value.fset
+                        else _scope_method(value.fset),
+                        value.fdel
+                        if not value.fdel
+                        else _scope_method(value.fdel),
                         doc=value.__doc__,
                     )
                 elif inspect.isfunction(value):
@@ -554,13 +587,13 @@ class ModuleMeta(type):
             except Exception:
                 msg = f"Annotation '{typ}' for field '{key}' is not a valid type."
                 raise ValueError(msg)
+        items = cls.__annotations__.items()
         cls._defaults = {
-            k: getattr(cls, k)
-            for k, v in cls.__annotations__.items()
-            if hasattr(cls, k)
+            k: getattr(cls, k) for k, v in items if hasattr(cls, k)
         }
         for key, value in cls.__annotations__.items():
-            setattr(cls, key, property(lambda self, key=key: self._fields[key]))
+            prop = property(lambda self, key=key: self._fields[key])
+            setattr(cls, key, prop)
         for name in method_names:
             if name in cls._defaults:
                 continue
@@ -573,8 +606,9 @@ class ModuleMeta(type):
         """This runs once per use module instance creation. It derives a unique
         name and path for the module instance."""
         if not isinstance(name, str):
-            msg = "Please provide a module name via Module(..., name='example')."
-            raise TypeError(msg)
+            raise TypeError(
+                "Please provide a module name via Module(..., name='example')."
+            )
         validate(name, single=True)
         fields = {}
         for key, typ in cls.__annotations__.items():
@@ -601,8 +635,9 @@ class ModuleMeta(type):
             init(obj, *args, **kwargs)
         except TypeError as e:
             if kwargs:
-                keys = ", ".join(sorted(kwargs.keys()))
-                add_note(e, f"Keyword arguments not matched to class fields: {keys}")
+                keys = ', '.join(sorted(kwargs.keys()))
+                msg = f'Keyword arguments not matched to class fields: {keys}'
+                add_note(e, msg)
             raise
         return obj
 
@@ -612,7 +647,7 @@ def _scope_method(method):
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         with scope(self._path, absolute=True):
-            with jax.named_scope(self._path.split("/")[-1]):
+            with jax.named_scope(self._path.split('/')[-1]):
                 return method(self, *args, **kwargs)
 
     wrapper._method = method  # Debug info.
@@ -624,7 +659,7 @@ class Module(object, metaclass=ModuleMeta):
     name scoping via the meta class and helper functions for accessing state."""
 
     def __repr__(self):
-        return f"{self.__class__.__name__}({self.path})"
+        return f'{self.__class__.__name__}({self.path})'
 
     @property
     def path(self):
@@ -634,7 +669,7 @@ class Module(object, metaclass=ModuleMeta):
     @property
     def name(self):
         """The name of this module instance as a string."""
-        return self._path.split("/")[-1]
+        return self._path.split('/')[-1]
 
     @property
     def defaults(self):
@@ -642,7 +677,7 @@ class Module(object, metaclass=ModuleMeta):
 
     @property
     def values(self):
-        p = self.path + "/"
+        p = self.path + '/'
         ctx = context()
         # Read keys individually to mark them as accessed.
         return {k.removeprefix(p): ctx[k] for k in ctx if k.startswith(p)}
@@ -650,9 +685,9 @@ class Module(object, metaclass=ModuleMeta):
     def value(self, name, make, *args, **kwargs):
         """Define and read a state entry in the scope of this module."""
         validate(name)
-        msg = "Values can only be created in the root scope of a module."
+        msg = 'Values can only be created in the root scope of a module.'
         assert SCOPE == self.path, (name, msg)
-        path = self.path + "/" + name
+        path = self.path + '/' + name
         if path not in context():
             if callable(make):
                 value = make(*args, **kwargs)
@@ -666,12 +701,12 @@ class Module(object, metaclass=ModuleMeta):
     def read(self, name):
         """Read a state entry in the scope of this module."""
         validate(name)
-        return context()[self.path + "/" + name]
+        return context()[self.path + '/' + name]
 
     def write(self, name, value):
         """Update the value of a state entry in the scope of this module."""
         validate(name)
-        path = self.path + "/" + name
+        path = self.path + '/' + name
         existing = context()[path]
         value = jnp.asarray(value, dtype=existing.dtype)
         assert existing.shape == value.shape, (existing.shape, value.shape)
@@ -683,17 +718,18 @@ class Module(object, metaclass=ModuleMeta):
     def sub(self, name, make=None, *args, **kwargs):
         """Define and retrieve a sub module."""
         validate(name)
-        assert SCOPE == self.path or SCOPE.startswith(self.path + "/"), (
+        assert SCOPE == self.path or SCOPE.startswith(self.path + '/'), (
             name,
-            "Can only create submodules from inside the parent module.",
+            'Can only create submodules from inside the parent module.',
         )
         if SCOPE == self.path:
             handle = name
         else:
-            assert SCOPE.startswith(self.path + "/")
-            handle = SCOPE[len(self.path) + 1 :] + "/" + name
+            assert SCOPE.startswith(self.path + '/')
+            handle = SCOPE[len(self.path) + 1 :] + '/' + name
         if handle not in self._submodules:
-            assert make, "Provide constructor for submodule that does not exist."
+            msg = 'Provide constructor for submodule that does not exist.'
+            assert make, msg
             module = make(*args, **kwargs, name=name)
             self._submodules[handle] = module
         return self._submodules[handle]
@@ -705,13 +741,13 @@ class Variable(Module):
 
     def read(self):
         if not self.values:
-            self.value("value", self.make)
-        return super().read("value")
+            self.value('value', self.make)
+        return super().read('value')
 
     def write(self, value):
         if not self.values:
-            self.value("value", self.make)
-        return super().write("value", value)
+            self.value('value', self.make)
+        return super().write('value', value)
 
 
 class Tree(Module):
@@ -740,18 +776,18 @@ def flatten(tree):
     paths, values = zip(*items)
 
     def tostr(key):
-        key = key.key if hasattr(key, "key") else key
-        key = re.sub(r"[^A-Za-z0-9-_/]+", "", str(key))
+        key = key.key if hasattr(key, 'key') else key
+        key = re.sub(r'[^A-Za-z0-9-_/]+', '', str(key))
         return key
 
     spaths = [[tostr(x) for x in path] for path in paths]
-    keys = ["/".join(x for x in spath if x) for spath in spaths]
+    keys = ['/'.join(x for x in spath if x) for spath in spaths]
     treedef = (keys, treedef)
     if len(set(keys)) < len(keys):
         raise ValueError(
-            "Cannot flatten PyTree to dict because paths are ambiguous "
-            "after converting them to string keys.\n"
-            "Paths: {paths}\nKeys: {keys}"
+            'Cannot flatten PyTree to dict because paths are ambiguous '
+            'after converting them to string keys.\n'
+            'Paths: {paths}\nKeys: {keys}'
         )
     items = dict(sorted(list(zip(keys, values)), key=lambda x: x[0]))
     return items, treedef
@@ -781,7 +817,7 @@ def FromFlax(make, postinit=None):
             self.treedef = None
 
         def __call__(self, *args, **kwargs):
-            if kwargs.get("mutable", False):
+            if kwargs.get('mutable', False):
                 raise NotImplementedError
             params = self._params(*args, **kwargs)
             return self.module.apply(params, *args, **kwargs)
